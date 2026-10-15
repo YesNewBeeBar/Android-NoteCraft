@@ -19,7 +19,7 @@ import java.io.File
 class WavAudioRecorder(
     private val sampleRate: Int,
     private val channelCount: Int = 1,
-    private val file: File
+    private val targetFile: File
 ) : AudioRecorder {
 
     private var record: AudioRecord? = null
@@ -49,8 +49,7 @@ class WavAudioRecorder(
     override val elapsedMs: Long
         get() = if (sampleRate <= 0) 0L else samplesCaptured * 1000L / sampleRate
 
-    override val file: File get() = targetFile
-    private val targetFile: File = file
+    override val file: File = targetFile
 
     @SuppressLint("MissingPermission")
     override fun start(onPcm: ((buffer: ShortArray, length: Int) -> Unit)?) {

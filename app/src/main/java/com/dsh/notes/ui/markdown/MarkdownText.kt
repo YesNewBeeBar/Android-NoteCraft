@@ -142,16 +142,17 @@ object MarkdownParser {
         var index = 0
         while (index < text.length) {
             val rest = text.substring(index)
-            val match = INLINE_PATTERNS.firstNotNullOfOrNull { pattern ->
-                pattern.regex.find(rest)?.takeIf { it.range.first == 0 }
+            // 命中的既要有正则结果，也要有它对应的样式，所以成对带出来
+            val found = INLINE_PATTERNS.firstNotNullOfOrNull { pattern ->
+                pattern.regex.find(rest)?.takeIf { it.range.first == 0 }?.let { pattern to it }
             }
-            if (match == null) {
+            if (found == null) {
                 // 没有更多标记：把剩下的普通文本一次性追加，避免逐字符 append
                 builder.append(text.substring(index))
                 return
             }
-            val marker = match.value.substringBefore(match.groupValues[1])
-            builder.withStyle(match.style) {
+            val (pattern, match) = found
+            builder.withStyle(pattern.style) {
                 appendInline(this, match.groupValues[1])
             }
             index += match.value.length

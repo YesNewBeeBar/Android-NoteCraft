@@ -196,7 +196,7 @@ class RecordingService : Service() {
             val engine: AudioRecorder = if (compressed) {
                 M4aAudioRecorder(context = this, targetFile = file)
             } else {
-                WavAudioRecorder(sampleRate = sampleRate, channelCount = 1, file = file)
+                WavAudioRecorder(sampleRate = sampleRate, channelCount = 1, targetFile = file)
             }
 
             audioFile = file

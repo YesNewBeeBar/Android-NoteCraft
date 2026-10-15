@@ -19,7 +19,6 @@ import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
-import androidx.navigation.ExperimentalNavigationApi
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
@@ -99,7 +98,6 @@ fun NoteCraftApp(
                     )
                 }
 
-                @OptIn(ExperimentalNavigationApi::class)
                 composable(Destination.NOTES.route) {
                     NotesScreen(
                         viewModelFactory = viewModelFactory,

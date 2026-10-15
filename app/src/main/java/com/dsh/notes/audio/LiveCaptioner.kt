@@ -29,7 +29,7 @@ class LiveCaptioner(
     private val baseUrl: String,
     private val apiKey: String,
     private val model: String,
-    private val language: String,
+    private val language: String?,
     private val sampleRate: Int,
     private val chunkMs: Int,
     private val onSegment: (text: String) -> Unit,

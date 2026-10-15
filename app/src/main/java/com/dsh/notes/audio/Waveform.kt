@@ -29,14 +29,14 @@ object Waveform {
             var maxSample = 0
 
             RandomAccessFile(file, "r").use { raf ->
-                raf.seek(WavWriter.HEADER_SIZE)
+                raf.seek(WavWriter.HEADER_SIZE.toLong())
                 val totalSamples = ((raf.length() - WavWriter.HEADER_SIZE) / 2).toInt()
                 if (totalSamples <= 0) return emptyList()
 
                 // 第一遍：找整体峰值，用于归一化（不同录音音量差异很大）
                 val scanBuffer = ByteArray(step * 64)
                 var offset = 0L
-                raf.seek(WavWriter.HEADER_SIZE)
+                raf.seek(WavWriter.HEADER_SIZE.toLong())
                 while (offset < totalSamples.toLong()) {
                     val read = raf.read(scanBuffer)
                     if (read <= 0) break

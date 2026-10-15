@@ -75,6 +75,8 @@ import com.dsh.notes.ui.components.WaveformView
 import com.dsh.notes.ui.markdown.MarkdownText
 import com.dsh.notes.util.copyToClipboard
 import com.dsh.notes.util.formatDateTime
+import com.dsh.notes.util.formatDuration
+import com.dsh.notes.util.formatSize
 import kotlinx.coroutines.delay
 
 /**
@@ -91,7 +93,7 @@ fun NoteDetailScreen(
     onBack: () -> Unit
 ) {
     val viewModel: NoteDetailViewModel = viewModel(
-        factory = viewModelFactory,
+        factory = viewModelFactory.forNote(noteId),
         key = "note-$noteId"
     )
     val note by viewModel.note.collectAsStateWithLifecycle()
