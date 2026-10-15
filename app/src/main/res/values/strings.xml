@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">笔记整理器</string>
+
+    <string name="notif_channel_recording_name">录音进行中</string>
+    <string name="notif_channel_recording_desc">显示正在录音的通知与快捷控制</string>
+
+    <string name="notif_recording_title">正在录音</string>
+    <string name="notif_recording_action_stop">结束并保存</string>
+    <string name="notif_recording_action_pause">暂停</string>
+    <string name="notif_recording_action_resume">继续</string>
+
+    <string name="notif_channel_task_name">AI 处理进度</string>
+    <string name="notif_channel_task_desc">转写与整理的后台进度提示</string>
+</resources>

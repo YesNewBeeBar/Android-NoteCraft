@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 加密后的 API Key 与录音文件不参与云备份 -->
+<full-backup-content>
+    <exclude
+        domain="sharedpref"
+        path="." />
+    <exclude
+        domain="file"
+        path="audio" />
+</full-backup-content>

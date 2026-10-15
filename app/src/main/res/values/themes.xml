@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 只作为 App 启动到 Compose 之前的过渡主题，真正的配色在 ui/theme 里 -->
+    <style name="Theme.NoteCraft" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/ic_launcher_background</item>
+    </style>
+</resources>

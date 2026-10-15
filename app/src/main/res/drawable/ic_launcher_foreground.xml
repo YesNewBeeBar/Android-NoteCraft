@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 图标前景：笔 + 声波，纯矢量，不依赖任何位图资源 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- 笔杆 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M52,30 h4 a2,2 0 0 1 2,2 v26 h-8 v-26 a2,2 0 0 1 2,-2 z" />
+    <!-- 笔尖 -->
+    <path
+        android:fillColor="#FFD166"
+        android:pathData="M50,60 h8 l-4,10 z" />
+    <!-- 左侧声波 -->
+    <path
+        android:fillColor="#B7E4D5"
+        android:pathData="M40,44 h3 a1.5,1.5 0 0 1 1.5,1.5 v11 a1.5,1.5 0 0 1 -1.5,1.5 h-3 a1.5,1.5 0 0 1 -1.5,-1.5 v-11 a1.5,1.5 0 0 1 1.5,-1.5 z" />
+    <!-- 右侧声波 -->
+    <path
+        android:fillColor="#B7E4D5"
+        android:pathData="M65,44 h3 a1.5,1.5 0 0 1 1.5,1.5 v11 a1.5,1.5 0 0 1 -1.5,1.5 h-3 a1.5,1.5 0 0 1 -1.5,-1.5 v-11 a1.5,1.5 0 0 1 1.5,-1.5 z" />
+</vector>
