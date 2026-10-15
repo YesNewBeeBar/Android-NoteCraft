@@ -9,6 +9,7 @@ import com.dsh.notes.data.Note
 import com.dsh.notes.data.SettingsStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.File
 
 /** 导出结果：最终落在哪里、文件名是什么 */
 data class ExportResult(
@@ -90,6 +91,53 @@ class NotesExporter(
         )
     }
 
+    /**
+     * 把这条笔记的录音原文件复制到用户选的目录。
+     *
+     * 和 .md 不同，音频是原始素材：复制出去就完事，不写回笔记表。
+     * 文件名沿用同一套模板（[FileNameTemplate]），只是扩展名换成音频自己的。
+     */
+    suspend fun exportAudio(note: Note, treeUri: String): ExportResult =
+        withContext(Dispatchers.IO) {
+            val source = note.audioPath?.takeIf { it.isNotBlank() }?.let { File(it) }
+                ?: throw ExportException("这条笔记没有音频文件")
+
+            if (!source.exists()) {
+                throw ExportException("音频文件已不在（可能被清理过），转写文字仍然保留")
+            }
+
+            val root = DocumentFile.fromTreeUri(context, Uri.parse(treeUri))
+                ?: throw ExportException("保存位置已经失效（可能目录被删除或权限被回收），请重新选择")
+
+            if (!root.canWrite()) {
+                throw ExportException("这个目录没有写入权限，请重新选择")
+            }
+
+            val settings = settingsStore.current()
+            val target = resolveTargetDir(root, settings.exportSubDir)
+
+            val extension = source.extension.ifBlank { "bin" }
+            val baseName = FileNameTemplate.build(settings.fileNamePattern, note)
+            val displayName = "$baseName.$extension"
+
+            // 同名先删掉，重复导出不应该堆出 (1)(2)
+            target.findFile(displayName)?.takeIf { it.isFile }?.delete()
+
+            val document = target.createFile(audioMimeType(extension), displayName)
+                ?: throw ExportException("在「${target.name}」里创建文件失败")
+
+            context.contentResolver.openOutputStream(document.uri)?.use { output ->
+                source.inputStream().use { input -> input.copyTo(output, DEFAULT_BUFFER_SIZE) }
+            } ?: throw ExportException("写入音频失败")
+
+            ExportResult(
+                treeUri = treeUri,
+                documentUri = document.uri.toString(),
+                relativePath = buildRelativePath(settings.exportSubDir, displayName),
+                displayName = displayName
+            )
+        }
+
     /** 删除上次导出的文件（重新导出前清场） */
     suspend fun deleteExported(note: Note) = withContext(Dispatchers.IO) {
         val uri = note.exportDocumentUri ?: return@withContext
@@ -170,6 +218,19 @@ class NotesExporter(
 
     companion object {
         private const val TAG = "NotesExporter"
+
+        /** 音频扩展名 → MIME，交给 SAF 建文件用 */
+        fun audioMimeType(extension: String): String = when (extension.lowercase()) {
+            "wav" -> "audio/wav"
+            "mp3" -> "audio/mpeg"
+            "m4a", "mp4", "aac" -> "audio/mp4"
+            "ogg", "opus" -> "audio/ogg"
+            "flac" -> "audio/flac"
+            "3gp" -> "audio/3gpp"
+            "amr" -> "audio/amr"
+            "webm" -> "audio/webm"
+            else -> "application/octet-stream"
+        }
     }
 }
 

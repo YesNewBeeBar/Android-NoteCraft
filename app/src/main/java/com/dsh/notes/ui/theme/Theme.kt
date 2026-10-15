@@ -14,6 +14,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
+import com.dsh.notes.data.ThemeMode
 
 private val LightColors = lightColorScheme(
     primary = TealLightPrimary,
@@ -78,11 +79,17 @@ private val DarkColors = darkColorScheme(
 
 @Composable
 fun NoteCraftTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
+    /** 用户在标题栏选的深浅色；默认跟随系统 */
+    themeMode: ThemeMode = ThemeMode.FOLLOW_SYSTEM,
     /** Android 12+ 跟随系统壁纸取色。跟随主题色是默认行为，不想跟就在调用处传 false */
     dynamicColor: Boolean = true,
     content: @Composable () -> Unit
 ) {
+    val darkTheme = when (themeMode) {
+        ThemeMode.FOLLOW_SYSTEM -> isSystemInDarkTheme()
+        ThemeMode.LIGHT -> false
+        ThemeMode.DARK -> true
+    }
     val context = LocalContext.current
     val colorScheme = when {
         dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ->

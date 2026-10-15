@@ -165,7 +165,7 @@ class NotePipeline(
             repository.get(noteId)?.let { after -> exportIfWanted(after, settings, onProgress) }
         } catch (error: Exception) {
             val message = (error as? AiException)?.display ?: (error.message ?: "转写失败")
-            Log.w(TAG, "导入音频转写失败：\$message", error)
+            Log.w(TAG, "导入音频转写失败：$message", error)
             repository.patch(noteId) {
                 it.copy(status = NoteStatus.FAILED, errorMessage = message)
             }
@@ -177,7 +177,7 @@ class NotePipeline(
     private fun moveToAudioDir(noteId: Long, source: File, displayName: String): File? = runCatching {
         val dir = File(context.filesDir, "audio").apply { if (!exists()) mkdirs() }
         val extension = displayName.substringAfterLast('.', "").lowercase().ifBlank { "audio" }
-        val target = File(dir, "import-\$noteId.\$extension")
+        val target = File(dir, "import-$noteId.$extension")
         source.inputStream().use { input ->
             target.outputStream().use { output -> input.copyTo(output, DEFAULT_BUFFER_SIZE) }
         }

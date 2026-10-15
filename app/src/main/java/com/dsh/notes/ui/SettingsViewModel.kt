@@ -9,6 +9,9 @@ import com.dsh.notes.audio.LocalTranscriber
 import com.dsh.notes.data.AppSettings
 import com.dsh.notes.data.AsrEngine
 import com.dsh.notes.data.CryptoUtils
+import com.dsh.notes.util.CacheManager
+import com.dsh.notes.util.CacheUsage
+import com.dsh.notes.util.formatSize
 
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -41,6 +44,27 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
     val defaultAsrPrompt: String = PromptBuilder.DEFAULT_ASR_PROMPT
 
     val templates: List<PromptBuilder.PromptTemplate> = PromptBuilder.TEMPLATES
+
+    private val cacheManager = CacheManager(container.context, container.repository)
+
+    private val _cacheUsage = MutableStateFlow(CacheUsage())
+
+    /** 缓存占用；进设置页时算一次，清理后再算一次 */
+    val cacheUsage: StateFlow<CacheUsage> = _cacheUsage.asStateFlow()
+
+    fun refreshCacheUsage() {
+        viewModelScope.launch { _cacheUsage.value = cacheManager.scan() }
+    }
+
+    /** 清临时文件 + 无主音频；被笔记引用的录音不会动 */
+    fun clearCache() {
+        viewModelScope.launch {
+            val freed = cacheManager.clear()
+            _cacheUsage.value = cacheManager.scan()
+            _message.value =
+                if (freed > 0) "已清除 ${formatSize(freed)}" else "没有可清除的缓存"
+        }
+    }
 
     /** 当前生效的是哪一套（自定义 / 模板：xx / 内置默认） */
     fun activePromptSource(settings: AppSettings): String = PromptBuilder.activeSourceLabel(settings)

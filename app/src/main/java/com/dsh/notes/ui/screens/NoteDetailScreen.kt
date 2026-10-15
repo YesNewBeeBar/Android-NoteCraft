@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -164,6 +165,11 @@ fun NoteDetailScreen(
         contract = ActivityResultContracts.OpenDocumentTree()
     ) { uri -> uri?.let { pendingTreeUri = it.toString() } }
 
+    // 导出音频是「一次性动作」，不用问要不要设成默认位置，所以它单独用一个选择器
+    val pickAudioDirectory = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree()
+    ) { uri -> uri?.let { viewModel.exportAudioTo(it) } }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -248,6 +254,14 @@ fun NoteDetailScreen(
                             onClick = {
                                 menuExpanded = false
                                 pickDirectory.launch(null)
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("导出音频文件…") },
+                            leadingIcon = { Icon(Icons.Default.GraphicEq, contentDescription = null) },
+                            onClick = {
+                                menuExpanded = false
+                                pickAudioDirectory.launch(null)
                             }
                         )
                         DropdownMenuItem(

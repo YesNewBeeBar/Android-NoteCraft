@@ -14,3 +14,6 @@ local.properties
 *.apk
 *.aab
 *.keystore
+
+# 签名口令（连同上面的 keystore 一起保管好，丢了就发不了升级包）
+keystore.properties

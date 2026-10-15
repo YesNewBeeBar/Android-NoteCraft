@@ -6,12 +6,14 @@ import com.dsh.notes.AppContainer
 import com.dsh.notes.audio.RecorderState
 import com.dsh.notes.audio.RecordingService
 import com.dsh.notes.data.AppSettings
+import com.dsh.notes.data.ThemeMode
 import com.dsh.notes.pipeline.PipelineProgress
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 
 /**
  * 全局状态：录音机状态、设置、以及最近一次处理进度。
@@ -54,6 +56,16 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
     fun toggleMute() = RecordingService.toggleMute(container.context)
 
     fun cancelRecording() = RecordingService.cancel(container.context)
+
+    /**
+     * 深浅色手动切换：跟随系统 → 浅色 → 深色 → 跟随系统。
+     * 结果写进 DataStore，重启后还是用户选的那一档。
+     */
+    fun cycleThemeMode() {
+        val next = settings.value.themeMode.next()
+        container.appScope.launch { container.settings.setThemeMode(next) }
+        _toast.value = "主题：${next.label}"
+    }
 
     fun publishProgress(progress: PipelineProgress?) {
         _progress.value = progress

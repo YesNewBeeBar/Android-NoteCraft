@@ -54,10 +54,12 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.dsh.notes.audio.RecorderPhase
+import com.dsh.notes.data.ThemeMode
 import com.dsh.notes.ui.NoteCraftViewModelFactory
 import com.dsh.notes.ui.RecordingViewModel
 import com.dsh.notes.ui.components.ActivityBars
 import com.dsh.notes.ui.components.LevelMeter
+import com.dsh.notes.ui.components.ThemeToggleButton
 import com.dsh.notes.ui.theme.recordColor
 import com.dsh.notes.util.Permissions
 import com.dsh.notes.util.formatDuration
@@ -72,6 +74,8 @@ import com.dsh.notes.util.formatDuration
 @Composable
 fun RecordingScreen(
     viewModelFactory: NoteCraftViewModelFactory,
+    themeMode: ThemeMode,
+    onToggleTheme: () -> Unit,
     onOpenNote: (Long) -> Unit
 ) {
     val viewModel: RecordingViewModel = viewModel(factory = viewModelFactory)
@@ -103,6 +107,7 @@ fun RecordingScreen(
                             modifier = Modifier.padding(end = 12.dp)
                         )
                     }
+                    ThemeToggleButton(themeMode = themeMode, onToggle = onToggleTheme)
                 }
             )
         }

@@ -34,6 +34,27 @@ enum class StorageFormat {
         }
 }
 
+/** 深浅色模式。默认跟随系统，用户也可以在标题栏手动锁死一种 */
+enum class ThemeMode {
+    FOLLOW_SYSTEM,
+    LIGHT,
+    DARK;
+
+    val label: String
+        get() = when (this) {
+            FOLLOW_SYSTEM -> "跟随系统"
+            LIGHT -> "浅色"
+            DARK -> "深色"
+        }
+
+    /** 点一下按钮轮到下一个 */
+    fun next(): ThemeMode = when (this) {
+        FOLLOW_SYSTEM -> LIGHT
+        LIGHT -> DARK
+        DARK -> FOLLOW_SYSTEM
+    }
+}
+
 enum class AsrEngine {
     /** 云端 OpenAI 兼容接口（Whisper / SenseVoice 等），准确率高，音频要上传 */
     CLOUD,
@@ -91,7 +112,11 @@ data class AppSettings(
     val exportTreeUri: String = "",
     val exportSubDir: String = "NoteCraft",
     val autoExport: Boolean = false,
-    val fileNamePattern: String = "{date}-{time}-{title}"
+    val fileNamePattern: String = "{date}-{time}-{title}",
+
+    // ---------- 外观 ----------
+    /** 深浅色：默认跟随系统，标题栏右上角的按钮可以手动锁定 */
+    val themeMode: ThemeMode = ThemeMode.FOLLOW_SYSTEM
 ) {
     val deepseekReady: Boolean
         get() = deepseekApiKey.isNotBlank()
@@ -158,6 +183,8 @@ class SettingsStore(private val context: Context) {
         val exportSubDir = stringPreferencesKey("export_sub_dir")
         val autoExport = booleanPreferencesKey("auto_export")
         val fileNamePattern = stringPreferencesKey("file_name_pattern")
+
+        val themeMode = stringPreferencesKey("theme_mode")
     }
 
     val flow: Flow<AppSettings> = context.settingDataStore.data.map { prefs ->
@@ -187,7 +214,10 @@ class SettingsStore(private val context: Context) {
             exportTreeUri = prefs[Keys.exportTreeUri] ?: "",
             exportSubDir = prefs[Keys.exportSubDir] ?: "NoteCraft",
             autoExport = prefs[Keys.autoExport] ?: false,
-            fileNamePattern = prefs[Keys.fileNamePattern] ?: "{date}-{time}-{title}"
+            fileNamePattern = prefs[Keys.fileNamePattern] ?: "{date}-{time}-{title}",
+            themeMode = runCatching {
+                ThemeMode.valueOf(prefs[Keys.themeMode] ?: ThemeMode.FOLLOW_SYSTEM.name)
+            }.getOrDefault(ThemeMode.FOLLOW_SYSTEM)
         )
     }
 
@@ -237,6 +267,8 @@ class SettingsStore(private val context: Context) {
     suspend fun setAutoExport(value: Boolean) = put(Keys.autoExport, value)
 
     suspend fun setFileNamePattern(value: String) = put(Keys.fileNamePattern, value.trim())
+
+    suspend fun setThemeMode(value: ThemeMode) = put(Keys.themeMode, value.name)
 
     private suspend fun <T> put(key: Preferences.Key<T>, value: T) {
         context.settingDataStore.edit { it[key] = value }

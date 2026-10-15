@@ -190,6 +190,20 @@ class NoteDetailViewModel(
         }
     }
 
+    /** 把这条笔记的录音原文件导出到用户刚选的目录（一次性，不记默认位置） */
+    fun exportAudioTo(treeUri: Uri) {
+        viewModelScope.launch {
+            val current = container.repository.get(noteId) ?: return@launch
+            container.exporter.persistPermission(treeUri)
+            try {
+                val result = container.exporter.exportAudio(current, treeUri.toString())
+                _exportedPath.value = result.relativePath
+            } catch (error: Exception) {
+                _message.value = error.message ?: "导出音频失败"
+            }
+        }
+    }
+
     fun clearMessage() {
         _message.value = null
     }

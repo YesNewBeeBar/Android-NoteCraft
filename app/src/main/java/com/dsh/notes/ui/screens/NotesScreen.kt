@@ -44,10 +44,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.dsh.notes.data.ThemeMode
 import com.dsh.notes.ui.NoteCraftViewModelFactory
 import com.dsh.notes.ui.NotesViewModel
 import com.dsh.notes.ui.components.NoteCard
 import com.dsh.notes.ui.components.ActivityBars
+import com.dsh.notes.ui.components.ThemeToggleButton
 
 /**
  * 笔记列表。
@@ -59,6 +61,8 @@ import com.dsh.notes.ui.components.ActivityBars
 @Composable
 fun NotesScreen(
     viewModelFactory: NoteCraftViewModelFactory,
+    themeMode: ThemeMode,
+    onToggleTheme: () -> Unit,
     onOpenNote: (Long) -> Unit,
     sharedAudioUris: List<Uri> = emptyList(),
     onSharedAudioConsumed: () -> Unit = {}
@@ -93,7 +97,12 @@ fun NotesScreen(
     }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("我的笔记") }) },
+        topBar = {
+            TopAppBar(
+                title = { Text("我的笔记") },
+                actions = { ThemeToggleButton(themeMode = themeMode, onToggle = onToggleTheme) }
+            )
+        },
         floatingActionButton = {
             ExtendedFloatingActionButton(
                 onClick = { pickAudio.launch(arrayOf("audio/*")) },

@@ -16,6 +16,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Info
@@ -24,6 +25,7 @@ import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -60,9 +62,12 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.dsh.notes.data.AppSettings
 import com.dsh.notes.data.AsrEngine
 import com.dsh.notes.data.StorageFormat
+import com.dsh.notes.data.ThemeMode
 import com.dsh.notes.ui.NoteCraftViewModelFactory
 import com.dsh.notes.ui.SettingsViewModel
+import com.dsh.notes.ui.components.ThemeToggleButton
 import com.dsh.notes.util.ellipsizeMiddle
+import com.dsh.notes.util.formatSize
 
 /**
  * 设置页。
@@ -74,12 +79,20 @@ import com.dsh.notes.util.ellipsizeMiddle
 @Composable
 fun SettingsScreen(
     viewModelFactory: NoteCraftViewModelFactory,
+    themeMode: ThemeMode,
+    onToggleTheme: () -> Unit,
     onOpenPrompts: () -> Unit
 ) {
     val viewModel: SettingsViewModel = viewModel(factory = viewModelFactory)
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val locationLabel by viewModel.locationLabel.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
+    val cacheUsage by viewModel.cacheUsage.collectAsStateWithLifecycle()
+
+    var showClearCacheDialog by remember { mutableStateOf(false) }
+
+    // 进设置页就把占用算一遍，让用户点之前心里有数
+    LaunchedEffect(Unit) { viewModel.refreshCacheUsage() }
 
     val snackbar = remember { SnackbarHostState() }
     LaunchedEffect(message) {
@@ -94,7 +107,12 @@ fun SettingsScreen(
     ) { uri -> uri?.let(viewModel::onDirectoryPicked) }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("设置") }) },
+        topBar = {
+            TopAppBar(
+                title = { Text("设置") },
+                actions = { ThemeToggleButton(themeMode = themeMode, onToggle = onToggleTheme) }
+            )
+        },
         snackbarHost = { SnackbarHost(snackbar) }
     ) { padding ->
         Column(
@@ -360,6 +378,48 @@ fun SettingsScreen(
                 )
             }
 
+            // ================= 存储与缓存 =================
+            SettingsSection(
+                icon = Icons.Default.CleaningServices,
+                title = "存储与缓存",
+                subtitle = "临时文件，以及已经没有笔记引用的音频"
+            ) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                    )
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        UsageRow("临时文件", formatSize(cacheUsage.tempBytes))
+                        Spacer(Modifier.height(6.dp))
+                        UsageRow(
+                            label = "无主音频",
+                            value = if (cacheUsage.orphanCount == 0) {
+                                "无"
+                            } else {
+                                "${cacheUsage.orphanCount} 个 · ${formatSize(cacheUsage.orphanBytes)}"
+                            }
+                        )
+                    }
+                }
+                Text(
+                    text = "「无主音频」是笔记已被删除、却没有跟着清掉的录音。" +
+                        "仍被笔记引用的录音不会动 —— 那是你的数据，不是缓存。",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 8.dp, bottom = 10.dp)
+                )
+                OutlinedButton(
+                    onClick = { showClearCacheDialog = true },
+                    enabled = !cacheUsage.isEmpty
+                ) {
+                    Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.size(6.dp))
+                    Text(if (cacheUsage.isEmpty) "没有可清除的缓存" else "清除缓存")
+                }
+            }
+
             // ================= 关于 =================
             SettingsSection(
                 icon = Icons.Default.Info,
@@ -384,6 +444,36 @@ fun SettingsScreen(
 
             Spacer(Modifier.height(48.dp))
         }
+    }
+
+    if (showClearCacheDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearCacheDialog = false },
+            title = { Text("清除缓存？") },
+            text = {
+                Text(
+                    buildString {
+                        appendLine("将要清掉：")
+                        appendLine("· 临时文件 ${formatSize(cacheUsage.tempBytes)}")
+                        appendLine(
+                            "· 无主音频 ${cacheUsage.orphanCount} 个" +
+                                "（${formatSize(cacheUsage.orphanBytes)}）"
+                        )
+                        appendLine()
+                        append("笔记里还能播放的录音不会被删除。")
+                    }
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showClearCacheDialog = false
+                    viewModel.clearCache()
+                }) { Text("清除") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearCacheDialog = false }) { Text("取消") }
+            }
+        )
     }
 }
 
@@ -501,6 +591,26 @@ private fun CommittedTextField(
                 dirty = false
             }) { Text("保存") }
         }
+    }
+}
+
+@Composable
+private fun UsageRow(label: String, value: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 
