@@ -105,7 +105,7 @@ fun RecordingScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("笔记整理器") },
+                title = { Text("NoteCraft") },
                 actions = {
                     if (settings.liveCaptionEnabled && !settings.cloudAsrReady && state.isRecording) {
                         Text(

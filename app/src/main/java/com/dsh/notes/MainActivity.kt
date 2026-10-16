@@ -21,7 +21,7 @@ import com.dsh.notes.ui.NoteCraftViewModelFactory
  *
  * 顺手处理两件事：
  *  1) 首次进入时申请麦克风 + 通知权限（Android 13+ 通知要单独申请）；
- *  2) 接收别的应用「分享音频到笔记整理器」，直接进导入流程。
+ *  2) 接收别的应用「分享音频到 NoteCraft」，直接进导入流程。
  */
 class MainActivity : ComponentActivity() {
 

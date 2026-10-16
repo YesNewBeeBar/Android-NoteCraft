@@ -1,6 +1,6 @@
 <div align="center">
 
-# 笔记整理器 · NoteCraft
+# NoteCraft
 
 **按下录音键，剩下的交给它。**
 
@@ -243,6 +243,6 @@ wav / mp3 / m4a / aac / ogg / opus / flac / 3gp / amr / webm。
 
 <div align="center">
 
-**[⬆ 回到顶部](#笔记整理器--notecraft)** · **[下载最新版](https://github.com/YesNewBeeBar/Android-NoteCraft/releases)** · **[反馈问题](https://github.com/YesNewBeeBar/Android-NoteCraft/issues)**
+**[⬆ 回到顶部](#notecraft)** · **[下载最新版](https://github.com/YesNewBeeBar/Android-NoteCraft/releases)** · **[反馈问题](https://github.com/YesNewBeeBar/Android-NoteCraft/issues)**
 
 </div>
