@@ -3,9 +3,12 @@ package com.dsh.notes.ui
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.dsh.notes.AppContainer
+import com.dsh.notes.audio.LocalTranscriber
 import com.dsh.notes.audio.RecorderState
 import com.dsh.notes.audio.RecordingService
 import com.dsh.notes.data.AppSettings
+import com.dsh.notes.data.ConfigProblem
+import com.dsh.notes.data.ConfigValidator
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -28,6 +31,16 @@ class RecordingViewModel(private val container: AppContainer) : ViewModel() {
             started = SharingStarted.WhileSubscribed(5_000),
             initialValue = AppSettings()
         )
+
+    /** 这台设备上系统离线识别能不能用；选云端时用不到，但配置校验要拿它判断 */
+    val localEngineAvailable: Boolean = LocalTranscriber(container.context).isAvailable
+
+    /**
+     * 录音前的配置体检。
+     * @return 空列表表示可以录；否则每一项都指出是哪一块的哪个框、为什么
+     */
+    fun configProblems(settings: AppSettings): List<ConfigProblem> =
+        ConfigValidator.validate(settings, localEngineUsable = localEngineAvailable)
 
     // 录音控制都转给前台服务：界面随时可能被销毁，真正的录音状态不在这里
     fun startRecording() {

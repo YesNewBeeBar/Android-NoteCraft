@@ -91,7 +91,8 @@ fun NoteCraftApp(
         val navController = rememberNavController()
         val backStackEntry by navController.currentBackStackEntryAsState()
         val currentRoute = backStackEntry?.destination?.route
-        val showBottomBar = Destination.entries.any { it.route == currentRoute }
+        // 设置页的路由是 "settings?focus={focus}"，比之前先剥掉查询串
+        val showBottomBar = Destination.entries.any { it.route == currentRoute?.substringBefore('?') }
 
         Scaffold(
             snackbarHost = { SnackbarHost(snackbar) },
@@ -99,8 +100,9 @@ fun NoteCraftApp(
                 if (showBottomBar) {
                     NavigationBar {
                         Destination.entries.forEach { destination ->
+                            // 设置页带 focus 参数，destination.route 里会多一段查询串，比之前先剥掉
                             val selected = backStackEntry?.destination?.hierarchy
-                                ?.any { it.route == destination.route } == true
+                                ?.any { it.route?.substringBefore('?') == destination.route } == true
                             NavigationBarItem(
                                 selected = selected,
                                 onClick = {
@@ -132,7 +134,17 @@ fun NoteCraftApp(
                         viewModelFactory = viewModelFactory,
                         themeMode = settings.themeMode,
                         onToggleTheme = onToggleTheme,
-                        onOpenSettings = { navController.navigate(Destination.SETTINGS.route) },
+                        onOpenSettings = { problems ->
+                            val first = problems.first()
+                            mainViewModel.notify(
+                                if (problems.size == 1) {
+                                    first.message
+                                } else {
+                                    "${first.message}（一共 ${problems.size} 项待补）"
+                                }
+                            )
+                            navController.navigate("${Destination.SETTINGS.route}?focus=${first.area.routeKey}")
+                        },
                         onOpenNote = { noteId ->
                             navController.navigate("note/$noteId")
                         }
@@ -150,11 +162,22 @@ fun NoteCraftApp(
                     )
                 }
 
-                composable(Destination.SETTINGS.route) {
+                // 设置页带一个 focus 参数：录音前被拦下时会带上出问题的那一块，
+                // 进去直接滑过去。平时从底部导航进就是空串，行为不变。
+                composable(
+                    route = "${Destination.SETTINGS.route}?focus={focus}",
+                    arguments = listOf(
+                        navArgument("focus") {
+                            type = NavType.StringType
+                            defaultValue = ""
+                        }
+                    )
+                ) { entry ->
                     SettingsScreen(
                         viewModelFactory = viewModelFactory,
                         themeMode = settings.themeMode,
                         onToggleTheme = onToggleTheme,
+                        focusArea = entry.arguments?.getString("focus").orEmpty(),
                         onOpenPrompts = { navController.navigate(ROUTE_PROMPTS) }
                     )
                 }

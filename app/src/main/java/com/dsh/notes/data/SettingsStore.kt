@@ -141,23 +141,6 @@ data class AppSettings(
             AsrEngine.LOCAL -> true
         }
 
-    /**
-     * 云端转写到底缺哪一项；返回 null 表示现在可以录。
-     *
-     * 录音前拿它做防呆：录完才发现转写不了，等于白录一条 —— 这是最气人的失败方式。
-     * 注意这里**不管 DeepSeek 的 Key**：整理没配好不算失败，转写结果照样留着，
-     * 只是状态停在「待处理」，用户可以之后再补。
-     */
-    val transcribeBlocker: String?
-        get() = when {
-            asrEngine == AsrEngine.LOCAL -> null
-            asrApiKey.isBlank() && asrBaseUrl.isBlank() -> "转写的 API Key 和 BaseURL 都还没填"
-            asrApiKey.isBlank() -> "转写的 API Key 还没填"
-            asrBaseUrl.isBlank() -> "转写的 BaseURL 还没填"
-            asrModel.isBlank() -> "转写的模型名还没填"
-            else -> null
-        }
-
     /** 实时上屏只能靠云接口：本地识别要独占麦克风，无法与录音并行 */
     val canLiveCaption: Boolean
         get() = liveCaptionEnabled && cloudAsrReady

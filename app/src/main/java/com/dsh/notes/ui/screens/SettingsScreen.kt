@@ -53,9 +53,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -64,6 +67,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.dsh.notes.data.AppSettings
 import com.dsh.notes.data.AsrEngine
+import com.dsh.notes.data.ConfigArea
+import com.dsh.notes.data.ConfigField
+import com.dsh.notes.data.ConfigValidator
 import com.dsh.notes.data.StorageFormat
 import com.dsh.notes.data.ThemeMode
 import com.dsh.notes.ui.NoteCraftViewModelFactory
@@ -72,6 +78,7 @@ import com.dsh.notes.ui.components.ThemeToggleButton
 import com.dsh.notes.util.WebLinks
 import com.dsh.notes.util.ellipsizeMiddle
 import com.dsh.notes.util.formatSize
+import kotlinx.coroutines.launch
 
 /**
  * 设置页。
@@ -85,6 +92,8 @@ fun SettingsScreen(
     viewModelFactory: NoteCraftViewModelFactory,
     themeMode: ThemeMode,
     onToggleTheme: () -> Unit,
+    /** 从录音页被拦下时带过来的区块（deepseek / asr）；平时是空串 */
+    focusArea: String = "",
     onOpenPrompts: () -> Unit
 ) {
     val viewModel: SettingsViewModel = viewModel(factory = viewModelFactory)
@@ -96,6 +105,40 @@ fun SettingsScreen(
     var showClearCacheDialog by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
+
+    // 配置体检：哪个框有问题就标红并说明原因。用的是和录音页同一份判定，
+    // 所以用户改好一个字段，红标立刻消失，不会两边说法不一致。
+    val problems = remember(settings, viewModel.localEngineAvailable) {
+        ConfigValidator.validate(settings, localEngineUsable = viewModel.localEngineAvailable)
+    }
+    val problemsByField = remember(problems) { problems.associateBy { it.field } }
+
+    fun fieldError(field: ConfigField): String? = problemsByField[field]?.message
+
+    /*
+     * 自动滚到出问题的那一节。
+     *
+     * 位置只在第一次布局时记一次（那时滚动量还是 0）：用「节的顶 - 滚动容器的顶」
+     * 得到它在内容里的偏移。之后滚动时这两个值会一起变，差值不变，所以不必反复更新。
+     */
+    val scrollState = rememberScrollState()
+    val scope = rememberCoroutineScope()
+    var contentTop by remember { mutableStateOf(-1f) }
+    var deepseekTop by remember { mutableStateOf(-1f) }
+    var asrTop by remember { mutableStateOf(-1f) }
+
+    LaunchedEffect(focusArea, contentTop, deepseekTop, asrTop) {
+        if (contentTop < 0f) return@LaunchedEffect
+        val sectionTop = when (focusArea) {
+            ConfigArea.DEEPSEEK.routeKey -> deepseekTop
+            ConfigArea.ASR.routeKey -> asrTop
+            else -> return@LaunchedEffect
+        }
+        if (sectionTop < 0f) return@LaunchedEffect
+        // 往上留一点余量，免得目标节的标题正好贴着标题栏
+        val target = (sectionTop - contentTop - 12f).coerceAtLeast(0f)
+        scope.launch { scrollState.animateScrollTo(target.toInt()) }
+    }
 
     // 进设置页就把占用算一遍，让用户点之前心里有数
     LaunchedEffect(Unit) { viewModel.refreshCacheUsage() }
@@ -125,7 +168,8 @@ fun SettingsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(scrollState)
+                .onGloballyPositioned { if (contentTop < 0f) contentTop = it.positionInRoot().y }
                 .padding(horizontal = 16.dp)
         ) {
             Spacer(Modifier.height(8.dp))
@@ -134,7 +178,10 @@ fun SettingsScreen(
             SettingsSection(
                 icon = Icons.Default.Psychology,
                 title = "笔记整理（DeepSeek）",
-                subtitle = "把转写文字整理成结构化 Markdown 笔记"
+                subtitle = "把转写文字整理成结构化 Markdown 笔记",
+                modifier = Modifier.onGloballyPositioned {
+                    if (deepseekTop < 0f) deepseekTop = it.positionInRoot().y
+                }
             ) {
                 CommittedTextField(
                     label = "API Key",
@@ -142,6 +189,7 @@ fun SettingsScreen(
                     placeholder = "sk-…",
                     secret = true,
                     supporting = "只存在本机，用 Android Keystore 加密（${viewModel.describeKey(settings.deepseekApiKey)}）",
+                    error = fieldError(ConfigField.DEEPSEEK_KEY),
                     onCommit = viewModel::setDeepseekApiKey
                 )
                 OutlinedButton(
@@ -157,6 +205,7 @@ fun SettingsScreen(
                     initial = settings.deepseekBaseUrl,
                     placeholder = AppSettings.DEFAULT_DEEPSEEK_BASE_URL,
                     supporting = "官方就是 https://api.deepseek.com；填别的 OpenAI 兼容地址也能用",
+                    error = fieldError(ConfigField.DEEPSEEK_BASE_URL),
                     onCommit = viewModel::setDeepseekBaseUrl
                 )
                 CommittedTextField(
@@ -164,6 +213,7 @@ fun SettingsScreen(
                     initial = settings.deepseekModel,
                     placeholder = AppSettings.DEFAULT_DEEPSEEK_MODEL,
                     supporting = "deepseek-chat（通用）或 deepseek-reasoner（更强但更慢更贵）",
+                    error = fieldError(ConfigField.DEEPSEEK_MODEL),
                     onCommit = viewModel::setDeepseekModel
                 )
 
@@ -186,7 +236,10 @@ fun SettingsScreen(
             SettingsSection(
                 icon = Icons.Default.Mic,
                 title = "音频转写",
-                subtitle = "把录音变成文字。DeepSeek 没有音频接口，所以这里要单独配一家"
+                subtitle = "把录音变成文字。DeepSeek 没有音频接口，所以这里要单独配一家",
+                modifier = Modifier.onGloballyPositioned {
+                    if (asrTop < 0f) asrTop = it.positionInRoot().y
+                }
             ) {
                 Text(
                     text = "转写方式",
@@ -228,6 +281,7 @@ fun SettingsScreen(
                         placeholder = "sk-…",
                         secret = true,
                         supporting = "硅基流动 / OpenAI / Groq 的 Key 都填这里（${viewModel.describeKey(settings.asrApiKey)}）",
+                        error = fieldError(ConfigField.ASR_KEY),
                         onCommit = viewModel::setAsrApiKey
                     )
                     // 按填的 BaseURL 猜该去哪家申请；自建地址认不出来就干脆不显示，免得误导
@@ -246,6 +300,7 @@ fun SettingsScreen(
                         initial = settings.asrBaseUrl,
                         placeholder = AppSettings.DEFAULT_ASR_BASE_URL,
                         supporting = "OpenAI 官方填 https://api.openai.com/v1",
+                        error = fieldError(ConfigField.ASR_BASE_URL),
                         onCommit = viewModel::setAsrBaseUrl
                     )
                     CommittedTextField(
@@ -253,6 +308,7 @@ fun SettingsScreen(
                         initial = settings.asrModel,
                         placeholder = AppSettings.DEFAULT_ASR_MODEL,
                         supporting = "whisper-1 / FunAudioLLM/SenseVoiceSmall 等",
+                        error = fieldError(ConfigField.ASR_MODEL),
                         onCommit = viewModel::setAsrModel
                     )
                 }
@@ -513,10 +569,11 @@ private fun SettingsSection(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     title: String,
     subtitle: String,
+    modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
     Card(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .padding(vertical = 6.dp),
         shape = RoundedCornerShape(16.dp),
@@ -559,6 +616,8 @@ private fun CommittedTextField(
     initial: String,
     placeholder: String = "",
     supporting: String = "",
+    /** 非空表示这个框当前有问题：框会标红，下面用红字说明原因 */
+    error: String? = null,
     secret: Boolean = false,
     singleLine: Boolean = true,
     minLines: Int = 1,
@@ -583,6 +642,7 @@ private fun CommittedTextField(
         placeholder = { if (placeholder.isNotBlank()) Text(placeholder) },
         singleLine = singleLine,
         minLines = minLines,
+        isError = error != null,
         visualTransformation = if (secret && !revealed) {
             PasswordVisualTransformation()
         } else {
@@ -598,8 +658,27 @@ private fun CommittedTextField(
                 }
             }
         },
-        supportingText = if (supporting.isNotBlank()) {
-            { Text(supporting, style = MaterialTheme.typography.labelSmall) }
+        supportingText = if (error != null || supporting.isNotBlank()) {
+            {
+                Column {
+                    // 颜色显式指定：isError 会把整块 supportingText 都染红，
+                    // 但那行说明文字是中性提示，不该跟着变红
+                    if (error != null) {
+                        Text(
+                            text = error,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                    if (supporting.isNotBlank()) {
+                        Text(
+                            text = supporting,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
         } else {
             null
         },
