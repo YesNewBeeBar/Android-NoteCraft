@@ -25,6 +25,9 @@ import androidx.compose.ui.unit.dp
  *
  * 用真实的无限动画而不是静态图形：转写可能跑十几秒，
  * 一个不动的图标会让人以为卡死了。
+ *
+ * 注意容器高度必须写死：柱子本身在 5dp↔17dp 之间跳，如果外层用 wrap content，
+ * 整个组件的高度会跟着抖 12dp —— 上面的卡片、下面的按钮全都会一起上下跳。
  */
 @Composable
 fun ActivityBars(
@@ -34,7 +37,7 @@ fun ActivityBars(
 ) {
     val transition = rememberInfiniteTransition(label = "activity")
     Row(
-        modifier = modifier,
+        modifier = modifier.height(BAR_BOX_HEIGHT),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(3.dp)
     ) {
@@ -58,3 +61,6 @@ fun ActivityBars(
         }
     }
 }
+
+/** 柱子最高 17dp，留一点余量把容器钉死在这 */
+private val BAR_BOX_HEIGHT = 18.dp

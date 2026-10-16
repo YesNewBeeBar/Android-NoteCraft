@@ -38,6 +38,19 @@ interface NoteDao {
     @Query("SELECT * FROM notes WHERE status = 'RECORDING' ORDER BY createdAt DESC")
     suspend fun findByStatusRecording(): List<Note>
 
+    /**
+     * 还没处理完的笔记：待处理，以及上次被系统杀掉时卡在「转写中 / 整理中」的半截。
+     * 启动时拿它重建处理队列。纯查询，不动表结构。
+     */
+    @Query(
+        """
+        SELECT * FROM notes
+        WHERE status IN ('SAVED', 'TRANSCRIBING', 'SUMMARIZING')
+        ORDER BY createdAt ASC
+        """
+    )
+    suspend fun findResumable(): List<Note>
+
     @Query("SELECT COUNT(*) FROM notes")
     fun observeCount(): Flow<Int>
 

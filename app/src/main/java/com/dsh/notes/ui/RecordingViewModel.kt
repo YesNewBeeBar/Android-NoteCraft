@@ -9,11 +9,14 @@ import com.dsh.notes.audio.RecordingService
 import com.dsh.notes.data.AppSettings
 import com.dsh.notes.data.ConfigProblem
 import com.dsh.notes.data.ConfigValidator
+import com.dsh.notes.data.StorageFormat
+import com.dsh.notes.pipeline.ProcessingQueue
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 
 /**
  * 录音页的状态。
@@ -24,6 +27,27 @@ import kotlinx.coroutines.flow.stateIn
 class RecordingViewModel(private val container: AppContainer) : ViewModel() {
 
     val recorderState: StateFlow<RecorderState> = RecordingService.state
+
+    /** 「转写 + 整理」的处理队列：界面用它显示排队条数与当前进度 */
+    val queueState: StateFlow<ProcessingQueue.QueueState> = container.queue.state
+
+    /** 录音页那个实时上屏开关，和设置页是同一个设置 */
+    fun setLiveCaption(enabled: Boolean) = viewModelScope.launch {
+        container.settings.setLiveCaptionEnabled(enabled)
+        // 打开实时上屏就必须用 WAV（切片要原始 PCM），
+        // 顺手把格式也改掉，免得设置里写着 m4a、界面上却录的是 WAV
+        if (enabled && container.settings.current().storageFormat != StorageFormat.WAV) {
+            container.settings.setStorageFormat(StorageFormat.WAV)
+        }
+    }
+
+    /** 选 m4a 就自动关掉实时上屏 —— m4a 拿不到 PCM，开着它也没用 */
+    fun setStorageFormat(format: StorageFormat) = viewModelScope.launch {
+        container.settings.setStorageFormat(format)
+        if (format == StorageFormat.M4A && container.settings.current().liveCaptionEnabled) {
+            container.settings.setLiveCaptionEnabled(false)
+        }
+    }
 
     val settings: StateFlow<AppSettings> = container.settings.flow
         .stateIn(

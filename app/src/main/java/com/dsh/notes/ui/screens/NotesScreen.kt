@@ -71,6 +71,7 @@ fun NotesScreen(
     val notes by viewModel.notes.collectAsStateWithLifecycle()
     val keyword by viewModel.keyword.collectAsStateWithLifecycle()
     val importState by viewModel.importState.collectAsStateWithLifecycle()
+    val queueState by viewModel.queueState.collectAsStateWithLifecycle()
 
 
     // 从系统「分享音频」进来时自动导入
@@ -152,7 +153,9 @@ fun NotesScreen(
                         NoteCard(
                             note = note,
                             onClick = { onOpenNote(note.id) },
-                            modifier = Modifier.animateItem()
+                            modifier = Modifier.animateItem(),
+                            queued = note.id == queueState.currentNoteId ||
+                                note.id in queueState.waitingIds
                         )
                     }
                     item { Spacer(Modifier.height(72.dp)) }

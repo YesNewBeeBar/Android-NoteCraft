@@ -19,6 +19,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Pause
@@ -31,12 +32,15 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -46,12 +50,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.dsh.notes.audio.RecorderPhase
@@ -86,6 +93,7 @@ fun RecordingScreen(
     val viewModel: RecordingViewModel = viewModel(factory = viewModelFactory)
     val state by viewModel.recorderState.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val queueState by viewModel.queueState.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
     val hasPermission = remember { mutableStateOf(Permissions.hasAudio(context)) }
@@ -139,7 +147,7 @@ fun RecordingScreen(
                 .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(6.dp))
 
             StatusHeader(
                 phase = state.phase,
@@ -148,10 +156,15 @@ fun RecordingScreen(
                 error = state.error
             )
 
-            // 格式徽标：让用户随时知道这次录的是 m4a 还是 WAV，别猜
+            /*
+             * 徽标区。
+             *  - 录音中：显示这次到底录的 m4a 还是 WAV，别让用户猜
+             *  - 空闲时：显示实时上屏开关 —— 以前只能去设置页关，
+             *    而且它一开就强制 WAV，用户却找不到地方关掉
+             */
             if (state.isRecording) {
                 Row(
-                    modifier = Modifier.padding(top = 10.dp),
+                    modifier = Modifier.padding(top = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -163,9 +176,15 @@ fun RecordingScreen(
                         FormatBadge(text = "实时上屏中", highlight = true)
                     }
                 }
+            } else if (state.phase != RecorderPhase.PROCESSING) {
+                LiveCaptionToggle(
+                    enabled = settings.liveCaptionEnabled,
+                    cloudReady = settings.cloudAsrReady,
+                    onToggle = viewModel::setLiveCaption
+                )
             }
 
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(10.dp))
 
             // 音量条：录音时给一个「麦克风在工作」的即时反馈
             if (state.isRecording) {
@@ -174,25 +193,24 @@ fun RecordingScreen(
                     muted = state.muted,
                     modifier = Modifier.fillMaxWidth()
                 )
-                Spacer(Modifier.height(20.dp))
+                Spacer(Modifier.height(10.dp))
             }
 
-            // 实时上屏：开着且配好了云转写才显示
-            if (state.isRecording && settings.liveCaptionEnabled) {
+            // 实时上屏：录音中、开着、而且这次确实是 PCM（m4a 拿不到流，没得上屏）
+            if (state.isRecording && settings.liveCaptionEnabled && !state.compressed) {
                 LiveCaptionPanel(
                     finalized = state.finalizedText,
                     partial = state.partialText
                 )
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(10.dp))
             }
-
-            Spacer(Modifier.height(8.dp))
 
             RecordButton(
                 phase = state.phase,
                 onClick = {
                     when (state.phase) {
-                        RecorderPhase.IDLE -> {
+                        // PROCESSING 也允许开录：处理在队列里排队，不该拦着用户录下一条
+                        RecorderPhase.IDLE, RecorderPhase.PROCESSING -> {
                             when {
                                 !Permissions.hasAudio(context) -> showPermissionDialog = true
 
@@ -209,12 +227,11 @@ fun RecordingScreen(
                         }
 
                         RecorderPhase.RECORDING, RecorderPhase.PAUSED -> viewModel.stopRecording()
-                        RecorderPhase.PROCESSING -> Unit
                     }
                 }
             )
 
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(10.dp))
 
             // 整理那边没配好时，给一条「先录着」的退路：
             // 转写照跑，笔记先停在待处理，等补上 API 再重新整理就行
@@ -277,16 +294,41 @@ fun RecordingScreen(
             }
 
             if (state.phase == RecorderPhase.PROCESSING) {
-                Spacer(Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     ActivityBars()
                     Spacer(Modifier.size(10.dp))
                     Text(
-                        text = "正在转写与整理，可以先去做别的",
+                        text = "正在转写与整理，休息一下吧",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+                // 队列情况说清楚：还有几条在等、当前这条在做什么
+                val queueDetail = buildString {
+                    queueState.currentProgress?.message?.takeIf { it.isNotBlank() }?.let {
+                        append(it)
+                    }
+                    if (queueState.waitingIds.isNotEmpty()) {
+                        if (isNotEmpty()) append(" · ")
+                        append("后面还有 ${queueState.waitingIds.size} 条排队")
+                    }
+                }
+                if (queueDetail.isNotBlank()) {
+                    Text(
+                        text = queueDetail,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(top = 6.dp)
+                    )
+                }
+                Text(
+                    text = "现在照样可以按上面的按钮录下一条，录完自动排到队尾。",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(top = 2.dp)
+                )
             }
 
             if (lastFinishedNoteId > 0 && state.phase == RecorderPhase.IDLE) {
@@ -298,9 +340,13 @@ fun RecordingScreen(
                 }
             }
 
+            // 使用提示只在空闲时显示：录音/处理时它纯占地方，
+            // 而那几个按钮更需要屏幕空间
+            if (state.phase == RecorderPhase.IDLE) {
+                Spacer(Modifier.height(16.dp))
+                Tips(settings.liveCaptionEnabled, settings.asrEngine.label)
+            }
             Spacer(Modifier.height(24.dp))
-            Tips(settings.liveCaptionEnabled, settings.asrEngine.label)
-            Spacer(Modifier.height(32.dp))
         }
     }
 
@@ -438,8 +484,53 @@ private fun SecondaryAction(
     }
 }
 
+/**
+ * 实时上屏开关。
+ *
+ * 以前这个开关只存在于设置页，而且它一开就强制录成 WAV ——
+ * 用户看到格式变了却找不到地方关。现在放在录音页最显眼的位置。
+ */
+@Composable
+private fun LiveCaptionToggle(
+    enabled: Boolean,
+    cloudReady: Boolean,
+    onToggle: (Boolean) -> Unit
+) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        FilterChip(
+            selected = enabled,
+            onClick = { onToggle(!enabled) },
+            label = { Text(if (enabled) "实时上屏：开" else "实时上屏：关") },
+            leadingIcon = {
+                Icon(
+                    imageVector = if (enabled) Icons.Default.GraphicEq else Icons.Default.VolumeOff,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        )
+        Text(
+            text = when {
+                !enabled -> "关着的话录成 m4a，省空间（1 小时约 14MB）"
+                !cloudReady -> "已开启，但云转写还没配好，暂时不会生效"
+                else -> "开启后必须录成 WAV（切片要原始音频流）"
+            },
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(top = 4.dp)
+        )
+    }
+}
+
 @Composable
 private fun LiveCaptionPanel(finalized: String, partial: String) {
+    val text = when {
+        finalized.isBlank() && partial.isBlank() -> "开始说话后，这里会实时出现文字…"
+        else -> finalized + partial
+    }
+    var fullScreen by remember { mutableStateOf(false) }
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(14.dp),
@@ -447,7 +538,7 @@ private fun LiveCaptionPanel(finalized: String, partial: String) {
             containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
         )
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
+        Column(modifier = Modifier.padding(start = 14.dp, end = 6.dp, top = 10.dp, bottom = 12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 ActivityBars(barCount = 3)
                 Spacer(Modifier.size(8.dp))
@@ -456,20 +547,97 @@ private fun LiveCaptionPanel(finalized: String, partial: String) {
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.primary
                 )
+                Spacer(Modifier.weight(1f))
+                IconButton(onClick = { fullScreen = true }) {
+                    Icon(
+                        Icons.Default.Fullscreen,
+                        contentDescription = "全屏查看转写",
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
             }
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = when {
-                    finalized.isBlank() && partial.isBlank() -> "开始说话后，这里会实时出现文字…"
-                    else -> finalized + partial
-                },
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.height(120.dp).verticalScroll(rememberScrollState())
+            Spacer(Modifier.height(4.dp))
+            AutoFollowText(
+                text = text,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(LIVE_CAPTION_HEIGHT)
+                    .padding(end = 8.dp)
             )
         }
     }
+
+    if (fullScreen) {
+        // 真·全屏覆盖：这一段文字经常是唯一想盯着看的东西
+        Dialog(
+            onDismissRequest = { fullScreen = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(modifier = Modifier.fillMaxSize()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 18.dp, vertical = 12.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "实时上屏",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Spacer(Modifier.weight(1f))
+                        IconButton(onClick = { fullScreen = false }) {
+                            Icon(Icons.Default.Close, contentDescription = "关闭")
+                        }
+                    }
+                    HorizontalDivider()
+                    Spacer(Modifier.height(12.dp))
+                    AutoFollowText(text = text, modifier = Modifier.fillMaxSize())
+                }
+            }
+        }
+    }
 }
+
+/**
+ * 会自己跟着最新文字走的文本区。
+ *
+ * 只在「用户本来就贴着底部」时才自动滚 —— 否则他往上翻看前文时，
+ * 每来一句新话就被拽回底部，等于永远读不了历史。
+ */
+@Composable
+private fun AutoFollowText(text: String, modifier: Modifier = Modifier) {
+    val scrollState = rememberScrollState()
+    var followTail by remember { mutableStateOf(true) }
+
+    // 只有用户自己拖动时才判断他是不是往上翻了；程序自身的滚动不算
+    LaunchedEffect(scrollState) {
+        snapshotFlow { scrollState.isScrollInProgress }.collect { dragging ->
+            if (dragging) {
+                followTail = scrollState.maxValue - scrollState.value <= TAIL_SLACK_PX
+            }
+        }
+    }
+
+    // 监听 maxValue 而不是 text：文字变长后布局才算完，这时 maxValue 才是新的
+    LaunchedEffect(scrollState) {
+        snapshotFlow { scrollState.maxValue }.collect {
+            if (followTail) scrollState.scrollTo(scrollState.maxValue)
+        }
+    }
+
+    Text(
+        text = text,
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurface,
+        modifier = modifier.verticalScroll(scrollState)
+    )
+}
+
+/** 转写栏折叠态高度 */
+private val LIVE_CAPTION_HEIGHT = 120.dp
+
+/** 离底部这么近就算「贴着底」，单位是像素 */
+private const val TAIL_SLACK_PX = 24
 
 @Composable
 private fun Tips(liveCaption: Boolean, engine: String) {

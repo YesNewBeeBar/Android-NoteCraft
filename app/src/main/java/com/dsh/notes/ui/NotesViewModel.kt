@@ -8,6 +8,7 @@ import com.dsh.notes.AppContainer
 import com.dsh.notes.data.AudioSource
 import com.dsh.notes.data.Note
 import com.dsh.notes.data.NoteStatus
+import com.dsh.notes.pipeline.ProcessingQueue
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -28,6 +29,9 @@ data class ImportState(
 )
 
 class NotesViewModel(private val container: AppContainer) : ViewModel() {
+
+    /** 处理队列状态：列表里给排队中的笔记打个标 */
+    val queueState: StateFlow<ProcessingQueue.QueueState> = container.queue.state
 
     private val _keyword = MutableStateFlow("")
 

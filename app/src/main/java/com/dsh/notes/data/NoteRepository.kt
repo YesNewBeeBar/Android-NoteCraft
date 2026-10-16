@@ -32,6 +32,9 @@ class NoteRepository(private val dao: NoteDao) {
 
     suspend fun listRecording(): List<Note> = dao.findByStatusRecording()
 
+    /** 还没处理完的（待处理 / 卡住的转写中与整理中），启动时用来重建队列 */
+    suspend fun listResumable(): List<Note> = dao.findResumable()
+
     /** 只改字段的一小部分，避免整行覆盖时把并发写入的内容冲掉 */
     suspend fun patch(id: Long, block: (Note) -> Note) {
         val current = dao.findById(id) ?: return

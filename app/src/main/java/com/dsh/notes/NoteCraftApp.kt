@@ -9,6 +9,7 @@ import com.dsh.notes.data.NotesDatabase
 import com.dsh.notes.data.SettingsStore
 import com.dsh.notes.export.NotesExporter
 import com.dsh.notes.pipeline.NotePipeline
+import com.dsh.notes.pipeline.ProcessingQueue
 import com.dsh.notes.update.UpdateManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -41,6 +42,16 @@ class AppContainer(private val app: Application) {
     val exporter: NotesExporter by lazy { NotesExporter(app, settings) }
 
     val pipeline: NotePipeline by lazy { NotePipeline(app, repository, settings, ai, exporter) }
+
+    /**
+     * 「转写 + 整理」的处理队列。串行、并发 1。
+     *
+     * 放在容器里做单例：录音结束后台服务要往里排，启动时的自动续跑也要往里排，
+     * 两处必须是同一个队列。
+     */
+    val queue: ProcessingQueue by lazy {
+        ProcessingQueue(pipeline, repository, settings, appScope)
+    }
 
     /**
      * 应用内自更新。做成单例是有意的：启动时的自动检查和设置页的「检查更新」
@@ -78,6 +89,10 @@ class AppContainer(private val app: Application) {
                     RecordingService.clearPersistedState(app)
                 }
             }
+
+            // 再把积压的「待处理」重新排上队。
+            // 这样即使上次是被强杀的，队列也会自愈，而不是永久卡住。
+            runCatching { queue.resumePending() }
         }
     }
 }

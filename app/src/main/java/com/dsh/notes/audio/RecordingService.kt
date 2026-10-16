@@ -27,7 +27,7 @@ import com.dsh.notes.data.Note
 import com.dsh.notes.data.NoteStatus
 import com.dsh.notes.data.StorageFormat
 
-import com.dsh.notes.pipeline.PipelineProgress
+import com.dsh.notes.pipeline.ProcessingQueue
 import com.dsh.notes.pipeline.languageTag
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -97,8 +97,18 @@ class RecordingService : Service() {
     private var recorder: AudioRecorder? = null
     private var captioner: LiveCaptioner? = null
     private var ticker: Job? = null
-    private var processingJob: Job? = null
+    private var queueObserver: Job? = null
     private var wakeLock: PowerManager.WakeLock? = null
+
+    /**
+     * 正在收尾（停采集、写库、入队）。
+     *
+     * 以前这里靠 `processingJob?.isActive` 挡重复的 STOP —— 那个判断是错的：
+     * 上一条笔记的处理还在跑时，新一轮录音的停止会被它直接吞掉，录音停不下来。
+     * 处理已经搬到 [com.dsh.notes.pipeline.ProcessingQueue]，这里只管本轮的收尾。
+     */
+    @Volatile
+    private var stopping = false
 
     private var audioFile: File? = null
     private var sampleRate = 16_000
@@ -123,6 +133,28 @@ class RecordingService : Service() {
     override fun onCreate() {
         super.onCreate()
         createChannels()
+        observeQueue()
+    }
+
+    /**
+     * 盯着处理队列。
+     *
+     * 录音流程不再自己跑转写，所以「前台挂着别被系统杀」这件事改由队列驱动：
+     * 队列还有活就保持前台，排空了才收工。
+     */
+    private fun observeQueue() {
+        queueObserver = scope.launch {
+            container.queue.state.collect { queueState ->
+                // 录音中 / 启动中 / 收尾中：界面状态归录音流程管，队列别插嘴
+                if (recorder != null || starting || stopping) return@collect
+
+                if (queueState.isBusy) {
+                    applyQueueState(queueState)
+                } else if (_state.value.phase == RecorderPhase.PROCESSING) {
+                    shutdown()
+                }
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -142,8 +174,10 @@ class RecordingService : Service() {
     // ---------------------------------------------------------------- 开始
 
     private fun handleStart(intent: Intent) {
-        if (recorder != null || starting) {
-            Log.w(TAG, "已经在录音或正在启动，忽略重复的 START")
+        // stopping 也要挡：收尾过程中 phase 已经是 PROCESSING（界面允许再录），
+        // 但上一条的 teardown 还没跑完，此刻起步会和它抢 recorder
+        if (recorder != null || starting || stopping) {
+            Log.w(TAG, "已经在录音 / 正在启动 / 正在收尾，忽略这次的 START")
             return
         }
 
@@ -258,7 +292,7 @@ class RecordingService : Service() {
         chunkMs = settings.liveCaptionChunkMs,
         onSegment = { text -> onCaptionSegment(text) },
         onError = { message ->
-            pushState(_state.value.copy(error = "实时上屏出错：$message"))
+            pushState(_state.value.copy(error = "$CAPTION_ERROR_PREFIX$message"))
             broadcast()
         }
     )
@@ -266,7 +300,16 @@ class RecordingService : Service() {
     private fun onCaptionSegment(text: String) {
         val merged = if (lastText.isBlank()) text else "$lastText\n$text"
         lastText = merged
-        pushState(_state.value.copy(finalizedText = merged, partialText = ""))
+        val current = _state.value
+        pushState(
+            current.copy(
+                finalizedText = merged,
+                partialText = "",
+                // 上一段失败过、这一段成功了，说明链路已经恢复：
+                // 把那条红字撤掉，别让它一直挂到录音结束
+                error = current.error?.takeUnless { it.startsWith(CAPTION_ERROR_PREFIX) }
+            )
+        )
         updateNotification()
         broadcast()
     }
@@ -309,13 +352,18 @@ class RecordingService : Service() {
     // ---------------------------------------------------------------- 结束
 
     private fun handleStop() {
-        if (processingJob?.isActive == true) return
-        processingJob = scope.launch { finishRecordingAndProcess() }
+        // 只防「重复点了结束」，不再看上一单处理跑没跑完
+        if (stopping || recorder == null) return
+        stopping = true
+        scope.launch { finishRecordingAndSave() }
     }
 
-    private suspend fun finishRecordingAndProcess() {
+    private suspend fun finishRecordingAndSave() {
         val noteId = _state.value.noteId
-        val engine = recorder ?: return
+        val engine = recorder ?: run {
+            stopping = false
+            return
+        }
 
         pushState(_state.value.copy(phase = RecorderPhase.PROCESSING, level = 0f))
         updateNotification(force = true)
@@ -354,16 +402,39 @@ class RecordingService : Service() {
 
         val settings = container.settings.current()
         if (noteId > 0 && settings.autoProcess) {
-            // 3) 继续挂在前台把转写与整理跑完 —— 用户锁屏也不会被系统杀掉
-            container.pipeline.process(
-                noteId = noteId,
-                forceTranscribe = true,
-                onProgress = { progress -> onPipelineProgress(progress) }
-            )
+            // 交给处理队列，而不是自己在这儿跑完 ——
+            // 这样用户能立刻开下一次录音，处理按先来后到排队慢慢做
+            container.queue.enqueue(noteId)
         }
 
         if (noteId > 0) container.clearActiveNote()
 
+        // 队列还有活就继续挂着前台；空了才收工
+        if (container.queue.state.value.isBusy) {
+            applyQueueState(container.queue.state.value)
+        } else {
+            shutdown()
+        }
+        stopping = false
+    }
+
+    /** 把队列状态映射成界面状态与通知 */
+    private fun applyQueueState(queueState: ProcessingQueue.QueueState) {
+        queueState.currentProgress?.message?.takeIf { it.isNotBlank() }?.let {
+            lastNotificationText = it
+        }
+        pushState(
+            RecorderState(
+                phase = RecorderPhase.PROCESSING,
+                noteId = queueState.currentNoteId
+            )
+        )
+        updateNotification(force = true)
+        broadcast()
+    }
+
+    /** 收工：前台、唤醒锁、通知、服务自己，一起放下 */
+    private fun shutdown() {
         stopTicker()
         releaseWakeLock()
         stopForegroundCompat()
@@ -372,16 +443,10 @@ class RecordingService : Service() {
         broadcast()
     }
 
-    private fun onPipelineProgress(progress: PipelineProgress) {
-        if (progress.message != lastNotificationText) {
-            lastNotificationText = progress.message
-            updateNotification(force = true)
-        }
-    }
-
     private fun handleCancel() {
         val noteId = _state.value.noteId
         scope.launch {
+            stopping = false
             captioner?.cancel()
             captioner = null
             runCatching { recorder?.stop() }
@@ -660,6 +725,9 @@ class RecordingService : Service() {
 
     companion object {
         private const val TAG = "RecordingService"
+
+        /** 实时上屏失败的提示前缀；后一段成功时按它把这条错误撤掉 */
+        private const val CAPTION_ERROR_PREFIX = "实时上屏出错："
         const val CHANNEL_RECORDING = "recording"
         const val CHANNEL_TASK = "task_progress"
         const val NOTIFICATION_ID = 1001
