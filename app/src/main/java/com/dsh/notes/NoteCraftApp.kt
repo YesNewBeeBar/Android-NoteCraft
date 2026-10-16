@@ -9,6 +9,7 @@ import com.dsh.notes.data.NotesDatabase
 import com.dsh.notes.data.SettingsStore
 import com.dsh.notes.export.NotesExporter
 import com.dsh.notes.pipeline.NotePipeline
+import com.dsh.notes.update.UpdateManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -40,6 +41,12 @@ class AppContainer(private val app: Application) {
     val exporter: NotesExporter by lazy { NotesExporter(app, settings) }
 
     val pipeline: NotePipeline by lazy { NotePipeline(app, repository, settings, ai, exporter) }
+
+    /**
+     * 应用内自更新。做成单例是有意的：启动时的自动检查和设置页的「检查更新」
+     * 必须共用同一份状态，否则两边会各弹各的窗。
+     */
+    val updater: UpdateManager by lazy { UpdateManager(app, settings) }
 
     /** 当前正在录音的那条笔记 id；前台服务结束时要用 */
     @Volatile

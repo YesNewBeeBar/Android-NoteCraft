@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Pause
@@ -76,6 +77,7 @@ fun RecordingScreen(
     viewModelFactory: NoteCraftViewModelFactory,
     themeMode: ThemeMode,
     onToggleTheme: () -> Unit,
+    onOpenSettings: () -> Unit,
     onOpenNote: (Long) -> Unit
 ) {
     val viewModel: RecordingViewModel = viewModel(factory = viewModelFactory)
@@ -85,6 +87,12 @@ fun RecordingScreen(
     val context = LocalContext.current
     val hasPermission = remember { mutableStateOf(Permissions.hasAudio(context)) }
     var showPermissionDialog by remember { mutableStateOf(false) }
+
+    /**
+     * 转写没配好时拦下这次录音。
+     * 录完才发现转写不了，等于白录一条 —— 这是最气人的失败方式，所以宁可不让他开始。
+     */
+    var configBlocker by remember { mutableStateOf<String?>(null) }
     var lastFinishedNoteId by remember { mutableStateOf(0L) }
 
     // 录音结束、笔记落库后，给一个「去看这条笔记」的入口
@@ -174,10 +182,11 @@ fun RecordingScreen(
                 onClick = {
                     when (state.phase) {
                         RecorderPhase.IDLE -> {
-                            if (!Permissions.hasAudio(context)) {
-                                showPermissionDialog = true
-                            } else {
-                                viewModel.startRecording()
+                            val blocker = settings.transcribeBlocker
+                            when {
+                                !Permissions.hasAudio(context) -> showPermissionDialog = true
+                                blocker != null -> configBlocker = blocker
+                                else -> viewModel.startRecording()
                             }
                         }
 
@@ -271,6 +280,34 @@ fun RecordingScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showPermissionDialog = false }) { Text("取消") }
+            }
+        )
+    }
+
+    // 防呆：转写没配好就别让录 —— 录完转不了，这条录音基本就废了
+    configBlocker?.let { reason ->
+        AlertDialog(
+            onDismissRequest = { configBlocker = null },
+            icon = { Icon(Icons.Default.ErrorOutline, contentDescription = null) },
+            title = { Text("还不能开始录音") },
+            text = {
+                Text(
+                    buildString {
+                        appendLine(reason)
+                        appendLine()
+                        appendLine("转写引擎现在是「${settings.asrEngine.label}」。")
+                        append("去设置里把缺的填上，或者改用「系统离线识别」——那条路不需要 Key。")
+                    }
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    configBlocker = null
+                    onOpenSettings()
+                }) { Text("去设置") }
+            },
+            dismissButton = {
+                TextButton(onClick = { configBlocker = null }) { Text("取消") }
             }
         )
     }

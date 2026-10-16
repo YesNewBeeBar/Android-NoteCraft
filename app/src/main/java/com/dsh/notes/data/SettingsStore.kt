@@ -116,7 +116,14 @@ data class AppSettings(
 
     // ---------- 外观 ----------
     /** 深浅色：默认跟随系统，标题栏右上角的按钮可以手动锁定 */
-    val themeMode: ThemeMode = ThemeMode.FOLLOW_SYSTEM
+    val themeMode: ThemeMode = ThemeMode.FOLLOW_SYSTEM,
+
+    // ---------- 更新 ----------
+    /** 上次检查更新的时间戳；自动检查靠它限流，免得每次开 App 都打一次 GitHub */
+    val lastUpdateCheckAt: Long = 0L,
+
+    /** 用户点了「稍后」的那个版本；同一个版本不再反复弹窗 */
+    val ignoredUpdateVersion: String = ""
 ) {
     val deepseekReady: Boolean
         get() = deepseekApiKey.isNotBlank()
@@ -132,6 +139,23 @@ data class AppSettings(
         get() = when (asrEngine) {
             AsrEngine.CLOUD -> cloudAsrReady
             AsrEngine.LOCAL -> true
+        }
+
+    /**
+     * 云端转写到底缺哪一项；返回 null 表示现在可以录。
+     *
+     * 录音前拿它做防呆：录完才发现转写不了，等于白录一条 —— 这是最气人的失败方式。
+     * 注意这里**不管 DeepSeek 的 Key**：整理没配好不算失败，转写结果照样留着，
+     * 只是状态停在「待处理」，用户可以之后再补。
+     */
+    val transcribeBlocker: String?
+        get() = when {
+            asrEngine == AsrEngine.LOCAL -> null
+            asrApiKey.isBlank() && asrBaseUrl.isBlank() -> "转写的 API Key 和 BaseURL 都还没填"
+            asrApiKey.isBlank() -> "转写的 API Key 还没填"
+            asrBaseUrl.isBlank() -> "转写的 BaseURL 还没填"
+            asrModel.isBlank() -> "转写的模型名还没填"
+            else -> null
         }
 
     /** 实时上屏只能靠云接口：本地识别要独占麦克风，无法与录音并行 */
@@ -185,6 +209,9 @@ class SettingsStore(private val context: Context) {
         val fileNamePattern = stringPreferencesKey("file_name_pattern")
 
         val themeMode = stringPreferencesKey("theme_mode")
+
+        val lastUpdateCheckAt = stringPreferencesKey("last_update_check_at")
+        val ignoredUpdateVersion = stringPreferencesKey("ignored_update_version")
     }
 
     val flow: Flow<AppSettings> = context.settingDataStore.data.map { prefs ->
@@ -217,7 +244,9 @@ class SettingsStore(private val context: Context) {
             fileNamePattern = prefs[Keys.fileNamePattern] ?: "{date}-{time}-{title}",
             themeMode = runCatching {
                 ThemeMode.valueOf(prefs[Keys.themeMode] ?: ThemeMode.FOLLOW_SYSTEM.name)
-            }.getOrDefault(ThemeMode.FOLLOW_SYSTEM)
+            }.getOrDefault(ThemeMode.FOLLOW_SYSTEM),
+            lastUpdateCheckAt = (prefs[Keys.lastUpdateCheckAt] ?: "0").toLongOrNull() ?: 0L,
+            ignoredUpdateVersion = prefs[Keys.ignoredUpdateVersion] ?: ""
         )
     }
 
@@ -269,6 +298,10 @@ class SettingsStore(private val context: Context) {
     suspend fun setFileNamePattern(value: String) = put(Keys.fileNamePattern, value.trim())
 
     suspend fun setThemeMode(value: ThemeMode) = put(Keys.themeMode, value.name)
+
+    suspend fun setLastUpdateCheckAt(value: Long) = put(Keys.lastUpdateCheckAt, value.toString())
+
+    suspend fun setIgnoredUpdateVersion(value: String) = put(Keys.ignoredUpdateVersion, value)
 
     private suspend fun <T> put(key: Preferences.Key<T>, value: T) {
         context.settingDataStore.edit { it[key] = value }

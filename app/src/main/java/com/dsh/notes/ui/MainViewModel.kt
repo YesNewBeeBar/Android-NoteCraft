@@ -8,6 +8,7 @@ import com.dsh.notes.audio.RecordingService
 import com.dsh.notes.data.AppSettings
 import com.dsh.notes.data.ThemeMode
 import com.dsh.notes.pipeline.PipelineProgress
+import com.dsh.notes.update.UpdateState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -39,6 +40,34 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
 
     /** 一行提示；界面消费后调 [clearToast] */
     val toast: StateFlow<String?> = _toast.asStateFlow()
+
+    // ---------------------------------------------------------------- 应用内更新
+
+    /** 更新流程状态；根界面拿它决定要不要弹更新窗 */
+    val updateState: StateFlow<UpdateState> = container.updater.state
+
+    /**
+     * 查一次新版本。
+     * @param manual 手动点的：失败或无更新都会给一句话；自动检查则静默且限流
+     */
+    fun checkForUpdate(manual: Boolean) {
+        viewModelScope.launch {
+            container.updater.check(manual)?.let { _toast.value = it }
+        }
+    }
+
+    /** 下载更新包并拉起系统安装器 */
+    fun installUpdate() {
+        viewModelScope.launch {
+            container.updater.downloadAndInstall()?.let { _toast.value = it }
+        }
+    }
+
+    /** 用户点了「稍后」：这个版本不再自动弹窗 */
+    fun dismissUpdate() {
+        val info = (container.updater.state.value as? UpdateState.Available)?.info ?: return
+        viewModelScope.launch { container.updater.dismiss(info) }
+    }
 
     fun startRecording() {
         RecordingService.start(

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  FileProvider 的可见范围：只暴露 cache/update 这一个子目录，
+  也就是自更新下载下来的那个 apk。别的一律不给外部应用看。
+-->
+<paths>
+    <cache-path
+        name="update"
+        path="update/" />
+</paths>

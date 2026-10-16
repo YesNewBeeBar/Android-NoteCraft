@@ -19,6 +19,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavDestination.Companion.hierarchy
@@ -29,12 +30,14 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.dsh.notes.ui.components.UpdateDialog
 import com.dsh.notes.ui.screens.NoteDetailScreen
 import com.dsh.notes.ui.screens.NotesScreen
 import com.dsh.notes.ui.screens.PromptSettingsScreen
 import com.dsh.notes.ui.screens.RecordingScreen
 import com.dsh.notes.ui.screens.SettingsScreen
 import com.dsh.notes.ui.theme.NoteCraftTheme
+import com.dsh.notes.util.WebLinks
 
 /** 底部导航的三个入口 */
 /** 提示词页不在底部导航里，从设置页右上角进入 */
@@ -60,7 +63,9 @@ fun NoteCraftApp(
     val mainViewModel: MainViewModel = viewModel(factory = viewModelFactory)
     val settings by mainViewModel.settings.collectAsStateWithLifecycle()
     val toast by mainViewModel.toast.collectAsStateWithLifecycle()
+    val updateState by mainViewModel.updateState.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
+    val context = LocalContext.current
 
     LaunchedEffect(toast) {
         toast?.let {
@@ -69,7 +74,18 @@ fun NoteCraftApp(
         }
     }
 
+    // 启动时自动查一次新版本（内部有 6 小时限流，不会每次开 App 都打 GitHub）
+    LaunchedEffect(Unit) { mainViewModel.checkForUpdate(manual = false) }
+
     val onToggleTheme: () -> Unit = { mainViewModel.cycleThemeMode() }
+
+    // 更新窗挂在根上：不管当前在哪个页面，发现新版本都能弹出来
+    UpdateDialog(
+        state = updateState,
+        onInstall = { mainViewModel.installUpdate() },
+        onLater = { mainViewModel.dismissUpdate() },
+        onOpenRelease = { url -> WebLinks.open(context, url) }
+    )
 
     NoteCraftTheme(themeMode = settings.themeMode) {
         val navController = rememberNavController()
@@ -116,6 +132,7 @@ fun NoteCraftApp(
                         viewModelFactory = viewModelFactory,
                         themeMode = settings.themeMode,
                         onToggleTheme = onToggleTheme,
+                        onOpenSettings = { navController.navigate(Destination.SETTINGS.route) },
                         onOpenNote = { noteId ->
                             navController.navigate("note/$noteId")
                         }

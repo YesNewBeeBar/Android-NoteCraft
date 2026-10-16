@@ -15,6 +15,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.Delete
@@ -23,6 +24,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
@@ -54,6 +56,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
@@ -66,6 +69,7 @@ import com.dsh.notes.data.ThemeMode
 import com.dsh.notes.ui.NoteCraftViewModelFactory
 import com.dsh.notes.ui.SettingsViewModel
 import com.dsh.notes.ui.components.ThemeToggleButton
+import com.dsh.notes.util.WebLinks
 import com.dsh.notes.util.ellipsizeMiddle
 import com.dsh.notes.util.formatSize
 
@@ -90,6 +94,8 @@ fun SettingsScreen(
     val cacheUsage by viewModel.cacheUsage.collectAsStateWithLifecycle()
 
     var showClearCacheDialog by remember { mutableStateOf(false) }
+
+    val context = LocalContext.current
 
     // 进设置页就把占用算一遍，让用户点之前心里有数
     LaunchedEffect(Unit) { viewModel.refreshCacheUsage() }
@@ -138,6 +144,14 @@ fun SettingsScreen(
                     supporting = "只存在本机，用 Android Keystore 加密（${viewModel.describeKey(settings.deepseekApiKey)}）",
                     onCommit = viewModel::setDeepseekApiKey
                 )
+                OutlinedButton(
+                    onClick = { WebLinks.open(context, WebLinks.DEEPSEEK_API_KEYS) },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.size(6.dp))
+                    Text("去 DeepSeek 申请 API Key")
+                }
                 CommittedTextField(
                     label = "BaseURL",
                     initial = settings.deepseekBaseUrl,
@@ -216,6 +230,17 @@ fun SettingsScreen(
                         supporting = "硅基流动 / OpenAI / Groq 的 Key 都填这里（${viewModel.describeKey(settings.asrApiKey)}）",
                         onCommit = viewModel::setAsrApiKey
                     )
+                    // 按填的 BaseURL 猜该去哪家申请；自建地址认不出来就干脆不显示，免得误导
+                    WebLinks.asrKeyUrl(settings.asrBaseUrl)?.let { url ->
+                        OutlinedButton(
+                            onClick = { WebLinks.open(context, url) },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.size(6.dp))
+                            Text("去申请转写 API Key")
+                        }
+                    }
                     CommittedTextField(
                         label = "转写 BaseURL",
                         initial = settings.asrBaseUrl,
@@ -439,6 +464,12 @@ fun SettingsScreen(
                 Spacer(Modifier.height(8.dp))
                 OutlinedButton(onClick = viewModel::selfTestCrypto) {
                     Text("运行密钥存储自检")
+                }
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(onClick = viewModel::checkUpdate) {
+                    Icon(Icons.Default.SystemUpdate, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.size(6.dp))
+                    Text("检查更新（当前 v${viewModel.currentVersion}）")
                 }
             }
 

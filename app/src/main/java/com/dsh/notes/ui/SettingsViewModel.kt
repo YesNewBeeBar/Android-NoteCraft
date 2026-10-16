@@ -66,6 +66,22 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
+    // ---- 更新 ----
+
+    /** 当前版本号，显示在「检查更新」那一行 */
+    val currentVersion: String = com.dsh.notes.BuildConfig.VERSION_NAME
+
+    /**
+     * 手动检查更新。先清掉「稍后」记录 ——
+     * 用户都主动点了，就不该再被上次的忽略挡住。
+     */
+    fun checkUpdate() {
+        viewModelScope.launch {
+            container.updater.forgetIgnored()
+            container.updater.check(manual = true)?.let { _message.value = it }
+        }
+    }
+
     /** 当前生效的是哪一套（自定义 / 模板：xx / 内置默认） */
     fun activePromptSource(settings: AppSettings): String = PromptBuilder.activeSourceLabel(settings)
 
