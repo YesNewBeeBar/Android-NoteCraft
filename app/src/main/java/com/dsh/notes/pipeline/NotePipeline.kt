@@ -9,6 +9,7 @@ import com.dsh.notes.audio.LocalTranscriber
 import com.dsh.notes.audio.probeDurationMs
 import com.dsh.notes.data.AppSettings
 import com.dsh.notes.data.AsrEngine
+import com.dsh.notes.data.ConfigValidator
 import com.dsh.notes.data.Note
 import com.dsh.notes.data.NoteRepository
 import com.dsh.notes.data.NoteStatus
@@ -307,9 +308,12 @@ class NotePipeline(
         settings: AppSettings,
         onProgress: (PipelineProgress) -> Unit
     ): Note {
-        // 没配 Key 就不算失败：转写结果照样留着，状态标成待处理
-        if (!settings.deepseekReady) {
-            val message = "转写已完成，但没有配置 DeepSeek API Key，尚未整理"
+        // 没配好就不算失败：转写结果照样留着，状态标成待处理。
+        // 这里用的是完整校验而不只是「Key 是否为空」—— 格式不对的 Key
+        // 发出去必然失败，那还不如停在待处理，等用户补好再重跑。
+        val deepseekProblem = ConfigValidator.deepseekProblems(settings).firstOrNull()
+        if (deepseekProblem != null) {
+            val message = "转写已完成，但整理用的 DeepSeek 还没配好：${deepseekProblem.message}"
             repository.patch(note.id) {
                 it.copy(status = NoteStatus.SAVED, errorMessage = message)
             }

@@ -17,6 +17,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Mic
@@ -54,6 +55,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.dsh.notes.audio.RecorderPhase
+import com.dsh.notes.data.ConfigArea
 import com.dsh.notes.data.ConfigProblem
 import com.dsh.notes.data.ThemeMode
 import com.dsh.notes.ui.NoteCraftViewModelFactory
@@ -90,6 +92,19 @@ fun RecordingScreen(
     var showPermissionDialog by remember { mutableStateOf(false) }
 
     var lastFinishedNoteId by remember { mutableStateOf(0L) }
+
+    // 配置体检。用 remember 缓存，免得每次重组都重算一遍
+    val problems = remember(settings, viewModel.localEngineAvailable) {
+        viewModel.configProblems(settings)
+    }
+
+    /**
+     * 能不能「暂不整理」。
+     *
+     * 只有整理（DeepSeek）那边没配好、而转写是好的时候才给这条路 ——
+     * 转写本身不可用时录下来只是一段听不了也转不了的音频，没有意义。
+     */
+    val canSkipOrganize = problems.isNotEmpty() && problems.none { it.area == ConfigArea.ASR }
 
     // 录音结束、笔记落库后，给一个「去看这条笔记」的入口
     LaunchedEffect(state.phase, state.noteId) {
@@ -184,7 +199,6 @@ fun RecordingScreen(
                                 // 转写和整理任一方没配好，这条录音都是废的：
                                 // 直接把人送到设置页出问题的那个框前面，不让他白说一段话
                                 else -> {
-                                    val problems = viewModel.configProblems(settings)
                                     if (problems.isEmpty()) {
                                         viewModel.startRecording()
                                     } else {
@@ -201,6 +215,27 @@ fun RecordingScreen(
             )
 
             Spacer(Modifier.height(16.dp))
+
+            // 整理那边没配好时，给一条「先录着」的退路：
+            // 转写照跑，笔记先停在待处理，等补上 API 再重新整理就行
+            if (state.phase == RecorderPhase.IDLE && canSkipOrganize) {
+                TextButton(onClick = { viewModel.startRecording() }) {
+                    Icon(
+                        Icons.Default.Bolt,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(Modifier.size(6.dp))
+                    Text("暂不整理")
+                }
+                Text(
+                    text = "先只做录音和转写。之后补上整理用的 API，在笔记详情里点「重新整理」即可。",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(Modifier.height(12.dp))
+            }
 
             if (state.isRecording) {
                 Row(

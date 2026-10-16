@@ -74,6 +74,16 @@ object ConfigValidator {
         }
     }
 
+    /**
+     * 只看「整理」这一边的配置。
+     *
+     * 转写已经跑完、准备整理时用它：Key 空着固然要跳过，
+     * **格式不对也要跳过** —— 拿一个明显不对的 Key 去发请求，
+     * 只会让这条笔记被标成「出错」，还不如停在「待处理」等用户补好再重跑。
+     */
+    fun deepseekProblems(settings: AppSettings): List<ConfigProblem> =
+        validate(settings).filter { it.area == ConfigArea.DEEPSEEK }
+
     private fun checkKey(
         value: String,
         area: ConfigArea,

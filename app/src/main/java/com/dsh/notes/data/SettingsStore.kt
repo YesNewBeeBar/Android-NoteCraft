@@ -125,9 +125,6 @@ data class AppSettings(
     /** 用户点了「稍后」的那个版本；同一个版本不再反复弹窗 */
     val ignoredUpdateVersion: String = ""
 ) {
-    val deepseekReady: Boolean
-        get() = deepseekApiKey.isNotBlank()
-
     val cloudAsrReady: Boolean
         get() = asrApiKey.isNotBlank() && asrBaseUrl.isNotBlank() && asrModel.isNotBlank()
 

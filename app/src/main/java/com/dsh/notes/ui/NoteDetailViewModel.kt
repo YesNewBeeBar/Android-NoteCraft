@@ -7,6 +7,7 @@ import com.dsh.notes.AppContainer
 import com.dsh.notes.ai.PromptBuilder
 import com.dsh.notes.audio.Waveform
 import com.dsh.notes.data.Note
+import com.dsh.notes.data.ConfigValidator
 import com.dsh.notes.pipeline.AudioFileState
 import com.dsh.notes.pipeline.PipelineProgress
 import com.dsh.notes.pipeline.PipelineStage
@@ -122,8 +123,9 @@ class NoteDetailViewModel(
         viewModelScope.launch {
             val current = container.repository.get(noteId) ?: return@launch
             val settings = container.settings.current()
-            if (!settings.deepseekReady) {
-                _message.value = "还没有配置 DeepSeek API Key"
+            val deepseekProblem = ConfigValidator.deepseekProblems(settings).firstOrNull()
+            if (deepseekProblem != null) {
+                _message.value = "整理用的 DeepSeek 还没配好：${deepseekProblem.message}"
                 return@launch
             }
             val source = current.displayBody.take(3000)
