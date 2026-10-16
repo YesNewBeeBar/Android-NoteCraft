@@ -5,6 +5,9 @@ app/build/
 app/schemas/
 local.properties
 
+# Kotlin 编译器的错误日志（构建过程产物）
+.kotlin/
+
 # IDE
 .idea/
 *.iml
