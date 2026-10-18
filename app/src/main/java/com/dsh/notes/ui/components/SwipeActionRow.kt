@@ -95,13 +95,16 @@ fun SwipeActionRow(
 
         // 正面：卡片本身，可以横向拖动
         //
-        // 这里必须垫一层不透明背景：笔记卡片的底色是半透明的
-        // （surfaceVariant + 45%），不垫的话背面的操作按钮会直接透出来，
-        // 变成「没滑也能看见一排按钮」。用页面背景色垫底，视觉上和原来完全一致。
+        // 必须在卡片下面垫一层不透明背景：笔记卡片底色是半透明的
+        // （surfaceVariant + 45%），不垫的话背面的按钮会直接透出来。
+        //
+        // ⚠️ 顺序不能反：background 一定要写在 offset 里面（先 offset 再 background）。
+        // 反过来的话背景节点位于 offset 之外，会固定在原位铺满整行，
+        // 卡片滑走后露出的就是这层背景色 —— 按钮全被盖掉，什么都看不见。
         Box(
             modifier = Modifier
-                .background(MaterialTheme.colorScheme.background)
                 .offset { IntOffset(offsetX.value.roundToInt(), 0) }
+                .background(MaterialTheme.colorScheme.background)
                 .draggable(
                     orientation = Orientation.Horizontal,
                     state = rememberDraggableState { delta ->
