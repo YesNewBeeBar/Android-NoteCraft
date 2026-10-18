@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.IOException
@@ -58,8 +59,17 @@ class UpdateManager(
             return null
         }
 
+        // 正在下载 / 正等安装器时绝不重查。
+        // 锁屏后回到前台会触发一次自动检查，如果这时把状态打成 Checking / Available，
+        // 界面上的进度条就会「来回拉扯」—— 这是那个横跳 bug 的根因。
+        when (_state.value) {
+            is UpdateState.Downloading, is UpdateState.Installer ->
+                return if (manual) "正在更新，请稍候" else null
+            else -> Unit
+        }
+
         _state.value = UpdateState.Checking
-        val result = runCatching { fetchLatest() }
+        val result = runCatching { fetchNewestRelease() }
         settingsStore.setLastUpdateCheckAt(System.currentTimeMillis())
 
         return result.fold(
@@ -70,7 +80,10 @@ class UpdateManager(
                         if (manual) "仓库里还没有发布版本" else null
                     }
 
-                    !isNewerVersion(info.versionName, BuildConfig.VERSION_NAME) -> {
+                    // 以「最新发布的那个 release」为准，而不是比版本号大小。
+                    // 版本号怎么编排是人的事（1.2.11 之后又发 1.2.2 这种情况真的发生过），
+                    // 数字大不代表发布得晚。只要最新 release 和手上的版本不是同一个，就提示。
+                    info.versionName == BuildConfig.VERSION_NAME -> {
                         _state.value = UpdateState.UpToDate
                         if (manual) "已经是最新版本（v${BuildConfig.VERSION_NAME}）" else null
                     }
@@ -101,6 +114,9 @@ class UpdateManager(
      * @return 出错时的一句话；已经交给安装器（或已把用户送去开权限）时返回 null
      */
     suspend fun downloadAndInstall(): String? {
+        // 防止重复触发：两次下载并发会让百分比互相覆盖，进度条就会左右横跳
+        if (_state.value is UpdateState.Downloading) return null
+
         val info = (_state.value as? UpdateState.Available)?.info
             ?: return "没有待安装的更新"
         val url = info.apkUrl ?: return "这一版没有附带 APK，去发布页看看"
@@ -132,9 +148,17 @@ class UpdateManager(
 
     // ---------------------------------------------------------------- 内部实现
 
-    private suspend fun fetchLatest(): UpdateInfo? = withContext(Dispatchers.IO) {
+    /**
+     * 取「最新发布的那个 release」。
+     *
+     * 不用 `/releases/latest`：GitHub 对它的排序是按版本标签（semver）来的，
+     * 于是 1.2.11 会被排到 1.2.2 后面 —— 数字大就当成「更新」，
+     * 可实际上后发布的才是新的。这里改成拉列表、按 published_at 倒序，
+     * 自己挑第一个非草稿、非预发布的，这才是真正意义上的「最新」。
+     */
+    private suspend fun fetchNewestRelease(): UpdateInfo? = withContext(Dispatchers.IO) {
         val request = Request.Builder()
-            .url("https://api.github.com/repos/$REPO/releases/latest")
+            .url("https://api.github.com/repos/$REPO/releases?per_page=30")
             .header("Accept", "application/vnd.github+json")
             .header("User-Agent", "NoteCraft-Android")
             .build()
@@ -143,7 +167,20 @@ class UpdateManager(
             when {
                 response.code == 404 -> null // 仓库还没发过 release，不是错误
                 !response.isSuccessful -> throw IOException("HTTP ${response.code}")
-                else -> parseRelease(JSONObject(response.body?.string().orEmpty()))
+                else -> {
+                    val array = JSONArray(response.body?.string().orEmpty())
+                    val candidates = buildList {
+                        for (i in 0 until array.length()) {
+                            val item = array.optJSONObject(i) ?: continue
+                            if (item.optBoolean("draft") || item.optBoolean("prerelease")) continue
+                            add(item)
+                        }
+                    }
+                    // published_at 是 ISO8601（2026-10-18T23:00:00Z），字典序最大即最新
+                    val newest = candidates.maxByOrNull { it.optString("published_at") }
+                        ?: return@withContext null
+                    parseRelease(newest)
+                }
             }
         }
     }
@@ -204,7 +241,8 @@ class UpdateManager(
                             done += read
                             if (total > 0) {
                                 val percent = (done * 100 / total).toInt()
-                                if (percent != lastPercent) {
+                                // 只往前进：即使出现并发/重试，进度条也不会往回跳
+                                if (percent > lastPercent) {
                                     lastPercent = percent
                                     _state.value = UpdateState.Downloading(info, percent)
                                 }

@@ -34,24 +34,3 @@ sealed interface UpdateState {
     data class Installer(val file: File) : UpdateState
 }
 
-/**
- * 比较版本号大小。只比数字段，忽略 `v` 前缀和 `-beta` 这类后缀。
- *
- * 故意的简单实现：这个项目的版本号就是 `主.次.修订`，上语义化版本那套重家伙没必要。
- */
-internal fun isNewerVersion(remote: String, current: String): Boolean {
-    fun parts(value: String) = value.trim()
-        .removePrefix("v").removePrefix("V")
-        .substringBefore('-')
-        .split('.')
-        .map { it.trim().toIntOrNull() ?: 0 }
-
-    val r = parts(remote)
-    val c = parts(current)
-    for (i in 0 until maxOf(r.size, c.size)) {
-        val a = r.getOrElse(i) { 0 }
-        val b = c.getOrElse(i) { 0 }
-        if (a != b) return a > b
-    }
-    return false
-}
