@@ -3,6 +3,7 @@ package com.dsh.notes.ui.components
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
@@ -93,8 +94,13 @@ fun SwipeActionRow(
         }
 
         // 正面：卡片本身，可以横向拖动
+        //
+        // 这里必须垫一层不透明背景：笔记卡片的底色是半透明的
+        // （surfaceVariant + 45%），不垫的话背面的操作按钮会直接透出来，
+        // 变成「没滑也能看见一排按钮」。用页面背景色垫底，视觉上和原来完全一致。
         Box(
             modifier = Modifier
+                .background(MaterialTheme.colorScheme.background)
                 .offset { IntOffset(offsetX.value.roundToInt(), 0) }
                 .draggable(
                     orientation = Orientation.Horizontal,
