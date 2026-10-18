@@ -279,7 +279,8 @@ fun NotesScreen(
                                     renameTarget = note
                                 },
                                 requestExport = { viewModel.exportMarkdown(note) },
-                                requestDelete = { deleteTarget = note }
+                                requestDelete = { deleteTarget = note },
+                                onError = viewModel::notify
                             ),
                             expanded = isOpen,
                             onExpandedChange = { openRowId = if (it) note.id else null }
@@ -438,7 +439,8 @@ private fun swipeActionsFor(
     requestMove: () -> Unit,
     requestRename: () -> Unit,
     requestExport: () -> Unit,
-    requestDelete: () -> Unit
+    requestDelete: () -> Unit,
+    onError: (String) -> Unit
 ): List<SwipeAction> = listOf(
     SwipeAction(
         label = "分类",
@@ -466,7 +468,7 @@ private fun swipeActionsFor(
         icon = Icons.Default.Share,
         container = MaterialTheme.colorScheme.primaryContainer,
         content = MaterialTheme.colorScheme.onPrimaryContainer,
-        onClick = { NoteSharing.share(context, note) }
+        onClick = { NoteSharing.shareAsFile(context, note)?.let(onError) }
     ),
     SwipeAction(
         label = "删除",

@@ -20,17 +20,24 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PauseCircle
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Spellcheck
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
@@ -41,8 +48,10 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -71,9 +80,11 @@ import com.dsh.notes.data.tags
 import com.dsh.notes.pipeline.AudioFileState
 import com.dsh.notes.ui.NoteCraftViewModelFactory
 import com.dsh.notes.ui.NoteDetailViewModel
+import com.dsh.notes.ui.Suspect
 import com.dsh.notes.ui.components.StatusChip
 import com.dsh.notes.ui.components.WaveformView
 import com.dsh.notes.ui.markdown.MarkdownText
+import com.dsh.notes.util.NoteSharing
 import com.dsh.notes.util.copyToClipboard
 import com.dsh.notes.util.formatDateTime
 import com.dsh.notes.util.formatDuration
@@ -103,6 +114,9 @@ fun NoteDetailScreen(
     val peaks by viewModel.peaks.collectAsStateWithLifecycle()
     val audioState by viewModel.audioState.collectAsStateWithLifecycle()
     val exportedPath by viewModel.exportedPath.collectAsStateWithLifecycle()
+    val speech by viewModel.speech.collectAsStateWithLifecycle()
+    val suspects by viewModel.suspects.collectAsStateWithLifecycle()
+    val checking by viewModel.checking.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
     val snackbar = remember { SnackbarHostState() }
@@ -112,6 +126,7 @@ fun NoteDetailScreen(
     var bodyDraft by remember { mutableStateOf("") }
     var showDeleteDialog by remember { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
+    var showToolsDialog by remember { mutableStateOf(false) }
     var pendingTreeUri by remember { mutableStateOf<String?>(null) }
     var showTranscript by remember { mutableStateOf(false) }
 
@@ -201,6 +216,23 @@ fun NoteDetailScreen(
                             contentDescription = if (editing) "预览" else "编辑"
                         )
                     }
+                    IconButton(onClick = {
+                        val state = speech
+                        when {
+                            state.playing -> viewModel.pauseSpeech()
+                            state.paused -> viewModel.resumeSpeech()
+                            else -> viewModel.speakBody()
+                        }
+                    }) {
+                        Icon(
+                            imageVector = when {
+                                speech.playing -> Icons.Default.PauseCircle
+                                speech.paused -> Icons.Default.PlayCircle
+                                else -> Icons.Default.VolumeUp
+                            },
+                            contentDescription = if (speech.playing) "暂停朗读" else "朗读笔记"
+                        )
+                    }
                     IconButton(onClick = { menuExpanded = true }) {
                         Icon(Icons.Default.MoreVert, contentDescription = "更多")
                     }
@@ -208,6 +240,7 @@ fun NoteDetailScreen(
                         expanded = menuExpanded,
                         onDismissRequest = { menuExpanded = false }
                     ) {
+                        // 常用：整理 / 转写
                         DropdownMenuItem(
                             text = { Text("重新整理（用 DeepSeek）") },
                             leadingIcon = { Icon(Icons.Default.AutoAwesome, contentDescription = null) },
@@ -232,14 +265,7 @@ fun NoteDetailScreen(
                                 viewModel.processAll()
                             }
                         )
-                        DropdownMenuItem(
-                            text = { Text("重拟标题") },
-                            leadingIcon = { Icon(Icons.Default.AutoAwesome, contentDescription = null) },
-                            onClick = {
-                                menuExpanded = false
-                                viewModel.regenerateTitle()
-                            }
-                        )
+                        // 常用：保存
                         DropdownMenuItem(
                             text = { Text("保存为 Markdown") },
                             leadingIcon = { Icon(Icons.Default.Description, contentDescription = null) },
@@ -256,20 +282,13 @@ fun NoteDetailScreen(
                                 pickDirectory.launch(null)
                             }
                         )
+                        // 不常用的收进二级，但删除必须留在外面
                         DropdownMenuItem(
-                            text = { Text("导出音频文件…") },
-                            leadingIcon = { Icon(Icons.Default.GraphicEq, contentDescription = null) },
+                            text = { Text("更多工具") },
+                            leadingIcon = { Icon(Icons.Default.MoreHoriz, contentDescription = null) },
                             onClick = {
                                 menuExpanded = false
-                                pickAudioDirectory.launch(null)
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("复制正文") },
-                            leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = null) },
-                            onClick = {
-                                menuExpanded = false
-                                note?.let { copyToClipboard(context, "笔记", it.displayBody) }
+                                showToolsDialog = true
                             }
                         )
                         DropdownMenuItem(
@@ -303,6 +322,18 @@ fun NoteDetailScreen(
                 .padding(horizontal = 18.dp)
         ) {
             Spacer(Modifier.height(8.dp))
+
+            // ---- 朗读控制条（开始念之后才出现） ----
+            if (speech.total > 0 || speech.error != null) {
+                SpeechBar(
+                    state = speech,
+                    onPause = viewModel::pauseSpeech,
+                    onResume = viewModel::resumeSpeech,
+                    onStop = viewModel::stopSpeech,
+                    onSpeed = viewModel::setSpeechSpeed
+                )
+                Spacer(Modifier.height(10.dp))
+            }
 
             // ---- 元信息 ----
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -559,6 +590,201 @@ fun NoteDetailScreen(
             }
         )
     }
+
+    // ---- 二级菜单：不常用的工具 ----
+    if (showToolsDialog) {
+        AlertDialog(
+            onDismissRequest = { showToolsDialog = false },
+            title = { Text("更多工具") },
+            text = {
+                Column {
+                    ToolRow("重拟标题", Icons.Default.AutoAwesome) {
+                        showToolsDialog = false
+                        viewModel.regenerateTitle()
+                    }
+                    ToolRow("复制正文", Icons.Default.ContentCopy) {
+                        showToolsDialog = false
+                        note?.let { copyToClipboard(context, "笔记", it.displayBody) }
+                    }
+                    ToolRow("复制摘要 + 待办", Icons.Default.Checklist) {
+                        showToolsDialog = false
+                        note?.let {
+                            copyToClipboard(context, "摘要 + 待办", NoteSharing.summaryAndTodo(it))
+                        }
+                    }
+                    ToolRow("导出音频文件…", Icons.Default.GraphicEq) {
+                        showToolsDialog = false
+                        pickAudioDirectory.launch(null)
+                    }
+                    ToolRow("检查疑似错误", Icons.Default.Spellcheck) {
+                        showToolsDialog = false
+                        viewModel.checkSuspects()
+                    }
+                    if (checking) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            text = "正在检查…",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showToolsDialog = false }) { Text("关闭") }
+            }
+        )
+    }
+
+    // ---- 可疑词逐条确认 ----
+    if (suspects.isNotEmpty()) {
+        SuspectsDialog(
+            suspects = suspects,
+            onApply = viewModel::applyCorrection,
+            onKeep = viewModel::dismissSuspect,
+            onClose = viewModel::clearSuspects
+        )
+    }
+}
+
+/** 二级菜单里的一行 */
+@Composable
+private fun ToolRow(
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    onClick: () -> Unit
+) {
+    TextButton(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
+        Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.size(8.dp))
+        Text(label)
+    }
+}
+
+/** 朗读控制条：播放/暂停、停止、调速 */
+@Composable
+private fun SpeechBar(
+    state: com.dsh.notes.audio.SpeechReader.State,
+    onPause: () -> Unit,
+    onResume: () -> Unit,
+    onStop: () -> Unit,
+    onSpeed: (Float) -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+        )
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = when {
+                        state.error != null -> state.error
+                        state.playing -> "正在朗读${if (state.source.isNotBlank()) " · ${state.source}" else ""}"
+                        state.paused -> "已暂停"
+                        else -> "朗读结束"
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (state.error != null) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    },
+                    modifier = Modifier.weight(1f)
+                )
+                if (state.total > 0) {
+                    Text(
+                        text = "${(state.index + 1).coerceAtMost(state.total)}/${state.total}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                FilledIconButton(onClick = { if (state.playing) onPause() else onResume() }) {
+                    Icon(
+                        imageVector = if (state.playing) Icons.Default.Pause else Icons.Default.PlayArrow,
+                        contentDescription = if (state.playing) "暂停" else "继续"
+                    )
+                }
+                Spacer(Modifier.size(8.dp))
+                FilledIconButton(
+                    onClick = onStop,
+                    colors = IconButtonDefaults.filledIconButtonColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant
+                    )
+                ) {
+                    Icon(Icons.Default.Stop, contentDescription = "停止")
+                }
+                Spacer(Modifier.weight(1f))
+                listOf(0.75f, 1.0f, 1.25f, 1.5f).forEach { speed ->
+                    FilterChip(
+                        selected = kotlin.math.abs(state.speed - speed) < 0.01f,
+                        onClick = { onSpeed(speed) },
+                        label = { Text("${speed}x") },
+                        modifier = Modifier.padding(start = 4.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** 可疑词逐条确认：点候选即替换，点「保留」就跳过 */
+@Composable
+private fun SuspectsDialog(
+    suspects: List<Suspect>,
+    onApply: (String, String) -> Unit,
+    onKeep: (String) -> Unit,
+    onClose: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text("检查疑似错误") },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                Text(
+                    text = "下面这些词在上下文里可能听错了。点一个候选写法即可替换，也可以保留原文。",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                suspects.forEach { suspect ->
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        text = suspect.word,
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                    if (suspect.reason.isNotBlank()) {
+                        Text(
+                            text = suspect.reason,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        suspect.suggestions.forEach { candidate ->
+                            AssistChip(
+                                onClick = { onApply(suspect.word, candidate) },
+                                label = { Text(candidate) }
+                            )
+                        }
+                        TextButton(onClick = { onKeep(suspect.word) }) { Text("保留") }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onClose) { Text("完成") }
+        }
+    )
 }
 
 /**

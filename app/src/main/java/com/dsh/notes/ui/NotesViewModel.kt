@@ -129,6 +129,11 @@ class NotesViewModel(private val container: AppContainer) : ViewModel() {
         _message.value = null
     }
 
+    /** 界面自己产生的提示（比如分享失败） */
+    fun notify(message: String) {
+        _message.value = message
+    }
+
     private val _importState = MutableStateFlow(ImportState())
 
     val importState: StateFlow<ImportState> = _importState.asStateFlow()
