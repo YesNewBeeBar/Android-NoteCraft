@@ -23,10 +23,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DriveFileMove
+import androidx.compose.material.icons.filled.DriveFileRenameOutline
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.MergeType
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
@@ -54,17 +58,22 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.dsh.notes.data.Note
 import com.dsh.notes.data.ThemeMode
 import com.dsh.notes.ui.FolderFilter
 import com.dsh.notes.ui.NoteCraftViewModelFactory
 import com.dsh.notes.ui.NotesViewModel
 import com.dsh.notes.ui.components.NoteCard
 import com.dsh.notes.ui.components.ActivityBars
+import com.dsh.notes.ui.components.SwipeAction
+import com.dsh.notes.ui.components.SwipeActionRow
 import com.dsh.notes.ui.components.ThemeToggleButton
+import com.dsh.notes.util.NoteSharing
 
 /**
  * 笔记列表。
@@ -93,13 +102,19 @@ fun NotesScreen(
     val message by viewModel.message.collectAsStateWithLifecycle()
 
     val notes = allNotes
+    val context = LocalContext.current
 
     // ---- 多选 ----
     var selectionMode by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf<Set<Long>>(emptySet()) }
-    var showFolderPicker by remember { mutableStateOf(false) }
+    // 同一时刻只允许一行滑开
+    var openRowId by remember { mutableStateOf<Long?>(null) }
+    var moveTargetIds by remember { mutableStateOf<List<Long>>(emptyList()) }
     var showNewFolderDialog by remember { mutableStateOf(false) }
     var newFolderName by remember { mutableStateOf("") }
+    var renameTarget by remember { mutableStateOf<Note?>(null) }
+    var renameDraft by remember { mutableStateOf("") }
+    var deleteTarget by remember { mutableStateOf<Note?>(null) }
 
     fun exitSelection() {
         selectionMode = false
@@ -151,7 +166,7 @@ fun NotesScreen(
                     actions = {
                         IconButton(
                             onClick = {
-                                showFolderPicker = true
+                                moveTargetIds = selected.toList()
                             },
                             enabled = selected.isNotEmpty()
                         ) {
@@ -253,31 +268,51 @@ fun NotesScreen(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     items(items = notes, key = { it.id }) { note ->
-                        NoteCard(
-                            note = note,
-                            onClick = {
-                                if (selectionMode) {
-                                    selected = if (note.id in selected) {
-                                        selected - note.id
-                                    } else {
-                                        selected + note.id
+                        val isOpen = openRowId == note.id
+                        SwipeActionRow(
+                            actions = swipeActionsFor(
+                                note = note,
+                                context = context,
+                                requestMove = { moveTargetIds = listOf(note.id) },
+                                requestRename = {
+                                    renameDraft = note.title
+                                    renameTarget = note
+                                },
+                                requestExport = { viewModel.exportMarkdown(note) },
+                                requestDelete = { deleteTarget = note }
+                            ),
+                            expanded = isOpen,
+                            onExpandedChange = { openRowId = if (it) note.id else null }
+                        ) {
+                            NoteCard(
+                                note = note,
+                                onClick = {
+                                    when {
+                                        // 划开的状态下点卡片先收起来，避免误进详情
+                                        isOpen -> openRowId = null
+                                        selectionMode -> {
+                                            selected = if (note.id in selected) {
+                                                selected - note.id
+                                            } else {
+                                                selected + note.id
+                                            }
+                                        }
+                                        else -> onOpenNote(note.id)
                                     }
-                                } else {
-                                    onOpenNote(note.id)
+                                },
+                                modifier = Modifier.animateItem(),
+                                queued = note.id == queueState.currentNoteId ||
+                                    note.id in queueState.waitingIds,
+                                selectionMode = selectionMode,
+                                selected = note.id in selected,
+                                onLongClick = {
+                                    if (!selectionMode) {
+                                        selectionMode = true
+                                        selected = setOf(note.id)
+                                    }
                                 }
-                            },
-                            modifier = Modifier.animateItem(),
-                            queued = note.id == queueState.currentNoteId ||
-                                note.id in queueState.waitingIds,
-                            selectionMode = selectionMode,
-                            selected = note.id in selected,
-                            onLongClick = {
-                                if (!selectionMode) {
-                                    selectionMode = true
-                                    selected = setOf(note.id)
-                                }
-                            }
-                        )
+                            )
+                        }
                     }
                     item { Spacer(Modifier.height(72.dp)) }
                 }
@@ -313,28 +348,32 @@ fun NotesScreen(
         )
     }
 
-    // 移到文件夹
-    if (showFolderPicker) {
+    // 移到文件夹（来自多选或单条右滑）
+    if (moveTargetIds.isNotEmpty()) {
         AlertDialog(
-            onDismissRequest = { showFolderPicker = false },
-            title = { Text("把 ${selected.size} 条笔记移到…") },
+            onDismissRequest = { moveTargetIds = emptyList() },
+            title = {
+                Text(
+                    if (moveTargetIds.size == 1) "把这条笔记移到…" else "把 ${moveTargetIds.size} 条笔记移到…"
+                )
+            },
             text = {
                 Column {
                     FolderPickRow("未分类") {
-                        viewModel.moveToFolder(selected.toList(), null)
-                        showFolderPicker = false
+                        viewModel.moveToFolder(moveTargetIds, null)
+                        moveTargetIds = emptyList()
                         exitSelection()
                     }
                     folders.forEach { folder ->
                         FolderPickRow(folder.name) {
-                            viewModel.moveToFolder(selected.toList(), folder.id)
-                            showFolderPicker = false
+                            viewModel.moveToFolder(moveTargetIds, folder.id)
+                            moveTargetIds = emptyList()
                             exitSelection()
                         }
                     }
                     if (folders.isEmpty()) {
                         Text(
-                            text = "还没有文件夹，先在上面点「＋」建一个。",
+                            text = "还没有文件夹，先在上面点「新建」建一个。",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -342,11 +381,101 @@ fun NotesScreen(
                 }
             },
             confirmButton = {
-                TextButton(onClick = { showFolderPicker = false }) { Text("取消") }
+                TextButton(onClick = { moveTargetIds = emptyList() }) { Text("取消") }
+            }
+        )
+    }
+
+    // 改名
+    renameTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { renameTarget = null },
+            title = { Text("重命名标题") },
+            text = {
+                OutlinedTextField(
+                    value = renameDraft,
+                    onValueChange = { renameDraft = it },
+                    label = { Text("标题") },
+                    singleLine = true
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.rename(target, renameDraft)
+                    renameTarget = null
+                }) { Text("保存") }
+            },
+            dismissButton = {
+                TextButton(onClick = { renameTarget = null }) { Text("取消") }
+            }
+        )
+    }
+
+    // 删除确认
+    deleteTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { deleteTarget = null },
+            title = { Text("删除这条笔记？") },
+            text = { Text("笔记与录音都会被删除，不能恢复。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.delete(target)
+                    deleteTarget = null
+                }) { Text("删除") }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteTarget = null }) { Text("取消") }
             }
         )
     }
 }
+
+/** 右滑露出的五个操作。标签都压到两个字，五个刚好排得下 */
+@Composable
+private fun swipeActionsFor(
+    note: Note,
+    context: android.content.Context,
+    requestMove: () -> Unit,
+    requestRename: () -> Unit,
+    requestExport: () -> Unit,
+    requestDelete: () -> Unit
+): List<SwipeAction> = listOf(
+    SwipeAction(
+        label = "分类",
+        icon = Icons.Default.Folder,
+        container = MaterialTheme.colorScheme.secondaryContainer,
+        content = MaterialTheme.colorScheme.onSecondaryContainer,
+        onClick = requestMove
+    ),
+    SwipeAction(
+        label = "改名",
+        icon = Icons.Default.DriveFileRenameOutline,
+        container = MaterialTheme.colorScheme.surfaceVariant,
+        content = MaterialTheme.colorScheme.onSurfaceVariant,
+        onClick = requestRename
+    ),
+    SwipeAction(
+        label = "保存",
+        icon = Icons.Default.Save,
+        container = MaterialTheme.colorScheme.tertiaryContainer,
+        content = MaterialTheme.colorScheme.onTertiaryContainer,
+        onClick = requestExport
+    ),
+    SwipeAction(
+        label = "分享",
+        icon = Icons.Default.Share,
+        container = MaterialTheme.colorScheme.primaryContainer,
+        content = MaterialTheme.colorScheme.onPrimaryContainer,
+        onClick = { NoteSharing.share(context, note) }
+    ),
+    SwipeAction(
+        label = "删除",
+        icon = Icons.Default.Delete,
+        container = MaterialTheme.colorScheme.errorContainer,
+        content = MaterialTheme.colorScheme.onErrorContainer,
+        onClick = requestDelete
+    )
+)
 
 /** 文件夹筛选条：全部 / 未分类 / 各文件夹 / 新建 */
 @Composable

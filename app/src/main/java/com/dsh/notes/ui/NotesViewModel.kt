@@ -9,6 +9,7 @@ import com.dsh.notes.data.AudioSource
 import com.dsh.notes.data.Folder
 import com.dsh.notes.data.Note
 import com.dsh.notes.data.NoteStatus
+import com.dsh.notes.export.ExportException
 import com.dsh.notes.pipeline.ProcessingQueue
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -134,6 +135,34 @@ class NotesViewModel(private val container: AppContainer) : ViewModel() {
 
     fun search(value: String) {
         _keyword.value = value
+    }
+
+    /** 列表里直接改标题，不用点进详情页 */
+    fun rename(note: Note, title: String) {
+        val trimmed = title.trim()
+        viewModelScope.launch {
+            container.repository.patch(note.id) {
+                it.copy(title = trimmed.ifBlank { "未命名笔记" })
+            }
+        }
+    }
+
+    /** 存到设置里选好的那个目录；没选过就提示去选 */
+    fun exportMarkdown(note: Note) {
+        viewModelScope.launch {
+            try {
+                val result = container.exporter.export(note)
+                _message.value = "已保存到 ${result.relativePath}"
+            } catch (error: ExportException) {
+                _message.value = if (error.needsPick) {
+                    "还没设置保存位置，去「设置 → Markdown 存放位置」选一个"
+                } else {
+                    error.message ?: "保存失败"
+                }
+            } catch (error: Exception) {
+                _message.value = error.message ?: "保存失败"
+            }
+        }
     }
 
     fun delete(note: Note) {
