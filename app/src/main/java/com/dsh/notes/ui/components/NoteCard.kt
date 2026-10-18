@@ -1,6 +1,7 @@
 package com.dsh.notes.ui.components
 
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -14,6 +15,7 @@ import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -28,21 +30,30 @@ import com.dsh.notes.data.Note
 import com.dsh.notes.util.formatDateTime
 
 /** 笔记列表里的一项 */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun NoteCard(
     note: Note,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     /** 这条正排在处理队列里（含「正在处理」与「排队等着」） */
-    queued: Boolean = false
+    queued: Boolean = false,
+    /** 是否处于多选状态；false 时点卡片就是直接打开 */
+    selectionMode: Boolean = false,
+    selected: Boolean = false,
+    onLongClick: () -> Unit = {}
 ) {
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+            containerColor = if (selected) {
+                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
+            } else {
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+            }
         )
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
@@ -50,6 +61,10 @@ fun NoteCard(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                if (selectionMode) {
+                    Checkbox(checked = selected, onCheckedChange = { onClick() })
+                    Spacer(Modifier.size(4.dp))
+                }
                 Text(
                     text = note.title.ifBlank { "未命名笔记" },
                     style = MaterialTheme.typography.titleMedium,

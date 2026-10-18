@@ -174,6 +174,70 @@ class NotePipeline(
         }
     }
 
+    /**
+     * 把多条笔记合并整理成**一条新笔记**。
+     *
+     * 原件一条都不删 —— 合并是「另写一份」，不是「覆盖」。
+     * 新笔记沿用第一条所在的文件夹，方便合并完就地归位。
+     *
+     * @return 新笔记的 id
+     */
+    suspend fun mergeAndOrganize(
+        noteIds: List<Long>,
+        onProgress: (PipelineProgress) -> Unit = {}
+    ): Long {
+        val settings = settingsStore.current()
+
+        ConfigValidator.deepseekProblems(settings).firstOrNull()?.let { problem ->
+            throw AiException("整理用的 DeepSeek 还没配好：${problem.message}")
+        }
+
+        val notes = noteIds.mapNotNull { repository.get(it) }.sortedBy { it.createdAt }
+        if (notes.size < 2) throw AiException("至少要两条有内容的笔记才能合并")
+
+        val corpus = notes.mapIndexed { index, note ->
+            buildString {
+                appendLine("### 第 ${index + 1} 条：${note.title.ifBlank { "未命名笔记" }}")
+                appendLine(note.displayBody.ifBlank { note.transcript })
+            }
+        }.joinToString("\n")
+
+        onProgress(
+            PipelineProgress.of(
+                notes.first().id,
+                PipelineStage.SUMMARIZING,
+                "正在把 ${notes.size} 条笔记合并整理…"
+            )
+        )
+
+        val digest = ai.deepseek.summarize(
+            baseUrl = settings.deepseekBaseUrl,
+            apiKey = settings.deepseekApiKey,
+            model = settings.deepseekModel,
+            transcript = corpus,
+            systemPrompt = PromptBuilder.MERGE_SYSTEM_PROMPT,
+            temperature = settings.temperature,
+            extraInstruction = "这是 ${notes.size} 条不同的笔记，请合并成一篇：去掉重复、按主题重组，不要简单地首尾相接。"
+        )
+
+        val newId = repository.create(
+            Note(
+                title = digest.title.ifBlank { "合并笔记" },
+                status = NoteStatus.DONE,
+                transcript = corpus,
+                refinedMarkdown = digest.markdown,
+                summary = digest.summary,
+                structuredJson = digest.structuredJson,
+                llmModel = settings.deepseekModel,
+                asrEngine = "合并自 ${notes.size} 条笔记",
+                folderId = notes.first().folderId
+            )
+        )
+
+        onProgress(PipelineProgress(newId, PipelineStage.DONE, "合并完成"))
+        return newId
+    }
+
     /** 把缓存里的音频搬进 filesDir/audio，返回落盘后的文件 */
     private fun moveToAudioDir(noteId: Long, source: File, displayName: String): File? = runCatching {
         val dir = File(context.filesDir, "audio").apply { if (!exists()) mkdirs() }

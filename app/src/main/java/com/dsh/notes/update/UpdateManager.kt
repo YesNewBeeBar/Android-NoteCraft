@@ -264,7 +264,10 @@ class UpdateManager(
         const val RELEASES_PAGE =
             "https://github.com/YesNewBeeBar/Android-NoteCraft/releases"
 
-        /** 自动检查的间隔：6 小时 */
-        private const val AUTO_CHECK_GAP_MS = 6 * 60 * 60 * 1000L
+        /**
+         * 自动检查的间隔。取 10 分钟：每次打开 App 都会真查一次，
+         * 又不会在反复切前后台时把 GitHub 的每小时配额打光。
+         */
+        private const val AUTO_CHECK_GAP_MS = 10 * 60 * 1000L
     }
 }

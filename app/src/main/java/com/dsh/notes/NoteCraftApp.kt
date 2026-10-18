@@ -35,7 +35,9 @@ class AppContainer(private val app: Application) {
 
     val settings: SettingsStore by lazy { SettingsStore(app) }
 
-    val repository: NoteRepository by lazy { NoteRepository(database.noteDao()) }
+    val repository: NoteRepository by lazy {
+        NoteRepository(database.noteDao(), database.folderDao())
+    }
 
     val ai: AiClients by lazy { AiClients(settings) }
 

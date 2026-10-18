@@ -414,10 +414,11 @@ private fun RecordButton(
     onClick: () -> Unit
 ) {
     val isRecording = phase == RecorderPhase.RECORDING || phase == RecorderPhase.PAUSED
-    val container = when {
-        phase == RecorderPhase.PROCESSING -> MaterialTheme.colorScheme.surfaceVariant
-        isRecording -> MaterialTheme.colorScheme.recordColor
-        else -> MaterialTheme.colorScheme.primary
+    // 处理中也要能按：新的录音会排进队列，处理在后台继续
+    val container = if (isRecording) {
+        MaterialTheme.colorScheme.recordColor
+    } else {
+        MaterialTheme.colorScheme.primary
     }
 
     Box(
@@ -429,7 +430,7 @@ private fun RecordButton(
     ) {
         FilledIconButton(
             onClick = onClick,
-            enabled = phase != RecorderPhase.PROCESSING,
+            enabled = true,
             modifier = Modifier.size(114.dp),
             colors = IconButtonDefaults.filledIconButtonColors(containerColor = container)
         ) {

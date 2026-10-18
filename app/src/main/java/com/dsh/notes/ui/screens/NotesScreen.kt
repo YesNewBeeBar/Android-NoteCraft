@@ -3,6 +3,7 @@ package com.dsh.notes.ui.screens
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,28 +16,41 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DriveFileMove
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.MergeType
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.UploadFile
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,6 +59,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.dsh.notes.data.ThemeMode
+import com.dsh.notes.ui.FolderFilter
 import com.dsh.notes.ui.NoteCraftViewModelFactory
 import com.dsh.notes.ui.NotesViewModel
 import com.dsh.notes.ui.components.NoteCard
@@ -68,11 +83,36 @@ fun NotesScreen(
     onSharedAudioConsumed: () -> Unit = {}
 ) {
     val viewModel: NotesViewModel = viewModel(factory = viewModelFactory)
-    val notes by viewModel.notes.collectAsStateWithLifecycle()
+    val allNotes by viewModel.visibleNotes.collectAsStateWithLifecycle()
     val keyword by viewModel.keyword.collectAsStateWithLifecycle()
     val importState by viewModel.importState.collectAsStateWithLifecycle()
     val queueState by viewModel.queueState.collectAsStateWithLifecycle()
+    val folders by viewModel.folders.collectAsStateWithLifecycle()
+    val folderFilter by viewModel.folderFilter.collectAsStateWithLifecycle()
+    val mergeState by viewModel.mergeState.collectAsStateWithLifecycle()
+    val message by viewModel.message.collectAsStateWithLifecycle()
 
+    val notes = allNotes
+
+    // ---- 多选 ----
+    var selectionMode by remember { mutableStateOf(false) }
+    var selected by remember { mutableStateOf<Set<Long>>(emptySet()) }
+    var showFolderPicker by remember { mutableStateOf(false) }
+    var showNewFolderDialog by remember { mutableStateOf(false) }
+    var newFolderName by remember { mutableStateOf("") }
+
+    fun exitSelection() {
+        selectionMode = false
+        selected = emptySet()
+    }
+
+    val snackbar = remember { SnackbarHostState() }
+    LaunchedEffect(message) {
+        message?.let {
+            snackbar.showSnackbar(it)
+            viewModel.clearMessage()
+        }
+    }
 
     // 从系统「分享音频」进来时自动导入
     LaunchedEffect(sharedAudioUris) {
@@ -98,18 +138,53 @@ fun NotesScreen(
     }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
-            TopAppBar(
-                title = { Text("我的笔记") },
-                actions = { ThemeToggleButton(themeMode = themeMode, onToggle = onToggleTheme) }
-            )
+            if (selectionMode) {
+                TopAppBar(
+                    title = { Text("已选 ${selected.size} 条") },
+                    navigationIcon = {
+                        IconButton(onClick = { exitSelection() }) {
+                            Icon(Icons.Default.Close, contentDescription = "取消选择")
+                        }
+                    },
+                    actions = {
+                        IconButton(
+                            onClick = {
+                                showFolderPicker = true
+                            },
+                            enabled = selected.isNotEmpty()
+                        ) {
+                            Icon(Icons.Default.DriveFileMove, contentDescription = "移到文件夹")
+                        }
+                        IconButton(
+                            onClick = {
+                                val ids = selected.toList()
+                                // 合并会新建一条笔记，选完就退出多选，避免误操作
+                                exitSelection()
+                                viewModel.mergeNotes(ids) { newId -> onOpenNote(newId) }
+                            },
+                            enabled = selected.size >= 2 && mergeState == null
+                        ) {
+                            Icon(Icons.Default.MergeType, contentDescription = "合并整理")
+                        }
+                    }
+                )
+            } else {
+                TopAppBar(
+                    title = { Text("我的笔记") },
+                    actions = { ThemeToggleButton(themeMode = themeMode, onToggle = onToggleTheme) }
+                )
+            }
         },
         floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = { pickAudio.launch(arrayOf("audio/*")) },
-                icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                text = { Text("导入音频") }
-            )
+            if (!selectionMode) {
+                ExtendedFloatingActionButton(
+                    onClick = { pickAudio.launch(arrayOf("audio/*")) },
+                    icon = { Icon(Icons.Default.Add, contentDescription = null) },
+                    text = { Text("导入音频") }
+                )
+            }
         }
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
@@ -130,6 +205,34 @@ fun NotesScreen(
                 },
                 singleLine = true
             )
+
+            FolderBar(
+                folders = folders,
+                filter = folderFilter,
+                onSelect = viewModel::selectFolder,
+                onNewFolder = {
+                    newFolderName = ""
+                    showNewFolderDialog = true
+                },
+                onDeleteFolder = viewModel::deleteFolder
+            )
+
+            mergeState?.let { text ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    ActivityBars()
+                    Spacer(Modifier.size(8.dp))
+                    Text(
+                        text = text,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
 
             if (importState.running || importState.error != null) {
                 ImportBanner(
@@ -152,10 +255,28 @@ fun NotesScreen(
                     items(items = notes, key = { it.id }) { note ->
                         NoteCard(
                             note = note,
-                            onClick = { onOpenNote(note.id) },
+                            onClick = {
+                                if (selectionMode) {
+                                    selected = if (note.id in selected) {
+                                        selected - note.id
+                                    } else {
+                                        selected + note.id
+                                    }
+                                } else {
+                                    onOpenNote(note.id)
+                                }
+                            },
                             modifier = Modifier.animateItem(),
                             queued = note.id == queueState.currentNoteId ||
-                                note.id in queueState.waitingIds
+                                note.id in queueState.waitingIds,
+                            selectionMode = selectionMode,
+                            selected = note.id in selected,
+                            onLongClick = {
+                                if (!selectionMode) {
+                                    selectionMode = true
+                                    selected = setOf(note.id)
+                                }
+                            }
                         )
                     }
                     item { Spacer(Modifier.height(72.dp)) }
@@ -164,6 +285,149 @@ fun NotesScreen(
         }
     }
 
+    // 新建文件夹
+    if (showNewFolderDialog) {
+        AlertDialog(
+            onDismissRequest = { showNewFolderDialog = false },
+            title = { Text("新建文件夹") },
+            text = {
+                OutlinedTextField(
+                    value = newFolderName,
+                    onValueChange = { newFolderName = it },
+                    label = { Text("文件夹名") },
+                    singleLine = true
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.createFolder(newFolderName)
+                        showNewFolderDialog = false
+                    },
+                    enabled = newFolderName.isNotBlank()
+                ) { Text("创建") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showNewFolderDialog = false }) { Text("取消") }
+            }
+        )
+    }
+
+    // 移到文件夹
+    if (showFolderPicker) {
+        AlertDialog(
+            onDismissRequest = { showFolderPicker = false },
+            title = { Text("把 ${selected.size} 条笔记移到…") },
+            text = {
+                Column {
+                    FolderPickRow("未分类") {
+                        viewModel.moveToFolder(selected.toList(), null)
+                        showFolderPicker = false
+                        exitSelection()
+                    }
+                    folders.forEach { folder ->
+                        FolderPickRow(folder.name) {
+                            viewModel.moveToFolder(selected.toList(), folder.id)
+                            showFolderPicker = false
+                            exitSelection()
+                        }
+                    }
+                    if (folders.isEmpty()) {
+                        Text(
+                            text = "还没有文件夹，先在上面点「＋」建一个。",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showFolderPicker = false }) { Text("取消") }
+            }
+        )
+    }
+}
+
+/** 文件夹筛选条：全部 / 未分类 / 各文件夹 / 新建 */
+@Composable
+private fun FolderBar(
+    folders: List<com.dsh.notes.data.Folder>,
+    filter: FolderFilter,
+    onSelect: (FolderFilter) -> Unit,
+    onNewFolder: () -> Unit,
+    onDeleteFolder: (Long) -> Unit
+) {
+    var pendingDelete by remember { mutableStateOf<com.dsh.notes.data.Folder?>(null) }
+
+    LazyRow(
+        modifier = Modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        item {
+            FilterChip(
+                selected = filter is FolderFilter.All,
+                onClick = { onSelect(FolderFilter.All) },
+                label = { Text("全部") }
+            )
+        }
+        item {
+            FilterChip(
+                selected = filter is FolderFilter.Unfiled,
+                onClick = { onSelect(FolderFilter.Unfiled) },
+                label = { Text("未分类") }
+            )
+        }
+        items(items = folders, key = { it.id }) { folder ->
+            FilterChip(
+                selected = filter is FolderFilter.In && filter.id == folder.id,
+                onClick = { onSelect(FolderFilter.In(folder.id)) },
+                label = { Text(folder.name) },
+                trailingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "删除文件夹「${folder.name}」",
+                        modifier = Modifier
+                            .size(16.dp)
+                            .clickable { pendingDelete = folder }
+                    )
+                }
+            )
+        }
+        item {
+            AssistChip(
+                onClick = onNewFolder,
+                label = { Text("新建") },
+                leadingIcon = { Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp)) }
+            )
+        }
+    }
+
+    pendingDelete?.let { folder ->
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text("删除文件夹「${folder.name}」？") },
+            text = { Text("里面的笔记不会被删除，只会回到「未分类」。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    onDeleteFolder(folder.id)
+                    pendingDelete = null
+                }) { Text("删除") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDelete = null }) { Text("取消") }
+            }
+        )
+    }
+}
+
+@Composable
+private fun FolderPickRow(name: String, onClick: () -> Unit) {
+    TextButton(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
+        Icon(Icons.Default.Folder, contentDescription = null, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.size(8.dp))
+        Text(name)
+    }
 }
 
 @Composable

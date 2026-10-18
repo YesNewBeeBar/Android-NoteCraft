@@ -5,7 +5,31 @@ import kotlinx.coroutines.flow.Flow
 /**
  * 笔记仓储：只做数据搬运，业务逻辑（转写、整理）放在 pipeline 里。
  */
-class NoteRepository(private val dao: NoteDao) {
+class NoteRepository(
+    private val dao: NoteDao,
+    private val folderDao: FolderDao
+) {
+
+    // ---------------------------------------------------------------- 文件夹
+
+    fun observeFolders(): Flow<List<Folder>> = folderDao.observeAll()
+
+    suspend fun createFolder(name: String): Long =
+        folderDao.insert(Folder(name = name.trim()))
+
+    suspend fun renameFolder(id: Long, name: String) = folderDao.rename(id, name.trim())
+
+    /** 删文件夹不删笔记：里面的笔记统统回到「未分类」 */
+    suspend fun deleteFolder(id: Long) {
+        folderDao.detachNotes(id)
+        folderDao.delete(id)
+    }
+
+    suspend fun moveNotesToFolder(noteIds: List<Long>, folderId: Long?) {
+        noteIds.forEach { id -> patch(id) { it.copy(folderId = folderId) } }
+    }
+
+    // ---------------------------------------------------------------- 笔记
 
     fun observeAll(): Flow<List<Note>> = dao.observeAll()
 

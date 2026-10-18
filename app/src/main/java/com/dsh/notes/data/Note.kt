@@ -84,7 +84,10 @@ data class Note(
 
     /** 录音过程中实时上屏的文字；完整转写完成后会被替换 */
     @ColumnInfo(defaultValue = "")
-    val liveDraft: String = ""
+    val liveDraft: String = "",
+
+    /** 所属文件夹；null 表示未分类 */
+    val folderId: Long? = null
 ) {
     /** 列表/详情里显示的正文：优先整理结果，其次原始转写 */
     val displayBody: String

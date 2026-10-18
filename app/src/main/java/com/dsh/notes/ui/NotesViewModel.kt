@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.dsh.notes.AppContainer
 import com.dsh.notes.data.AudioSource
+import com.dsh.notes.data.Folder
 import com.dsh.notes.data.Note
 import com.dsh.notes.data.NoteStatus
 import com.dsh.notes.pipeline.ProcessingQueue
@@ -14,6 +15,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -28,6 +30,13 @@ data class ImportState(
     val error: String? = null
 )
 
+/** 列表的文件夹筛选：全部 / 未分类 / 某个文件夹 */
+sealed interface FolderFilter {
+    data object All : FolderFilter
+    data object Unfiled : FolderFilter
+    data class In(val id: Long) : FolderFilter
+}
+
 class NotesViewModel(private val container: AppContainer) : ViewModel() {
 
     /** 处理队列状态：列表里给排队中的笔记打个标 */
@@ -41,6 +50,83 @@ class NotesViewModel(private val container: AppContainer) : ViewModel() {
     val notes: StateFlow<List<Note>> = _keyword
         .flatMapLatest { keyword -> container.repository.observeSearch(keyword) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    // ---------------------------------------------------------------- 文件夹
+
+    val folders: StateFlow<List<Folder>> = container.repository.observeFolders()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    private val _folderFilter = MutableStateFlow<FolderFilter>(FolderFilter.All)
+
+    val folderFilter: StateFlow<FolderFilter> = _folderFilter.asStateFlow()
+
+    /** 搜索之后再按文件夹筛一遍；笔记量在千级以内，内存里筛足够 */
+    val visibleNotes: StateFlow<List<Note>> =
+        combine(notes, _folderFilter) { list, filter ->
+            when (filter) {
+                is FolderFilter.All -> list
+                is FolderFilter.Unfiled -> list.filter { it.folderId == null }
+                is FolderFilter.In -> list.filter { it.folderId == filter.id }
+            }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    fun selectFolder(filter: FolderFilter) {
+        _folderFilter.value = filter
+    }
+
+    fun createFolder(name: String) {
+        val trimmed = name.trim()
+        if (trimmed.isBlank()) return
+        viewModelScope.launch { container.repository.createFolder(trimmed) }
+    }
+
+    /** 删文件夹不删笔记：里面的笔记回到「未分类」，并把筛选切回全部 */
+    fun deleteFolder(id: Long) {
+        viewModelScope.launch {
+            container.repository.deleteFolder(id)
+            if (folderFilter.value == FolderFilter.In(id)) _folderFilter.value = FolderFilter.All
+        }
+    }
+
+    fun moveToFolder(noteIds: List<Long>, folderId: Long?) {
+        if (noteIds.isEmpty()) return
+        viewModelScope.launch { container.repository.moveNotesToFolder(noteIds, folderId) }
+    }
+
+    // ---------------------------------------------------------------- 合并整理
+
+    private val _mergeState = MutableStateFlow<String?>(null)
+
+    /** 正在合并时的一行提示；null 表示没在合并 */
+    val mergeState: StateFlow<String?> = _mergeState.asStateFlow()
+
+    /**
+     * 把选中的多条笔记合并整理成一条新笔记。原件保留。
+     * @param onCreated 合并成功后回调新笔记 id，界面据此直接跳进去
+     */
+    fun mergeNotes(ids: List<Long>, onCreated: (Long) -> Unit) {
+        if (ids.size < 2 || _mergeState.value != null) return
+        viewModelScope.launch {
+            _mergeState.value = "正在合并 ${ids.size} 条笔记…"
+            try {
+                val newId = container.pipeline.mergeAndOrganize(ids)
+                _mergeState.value = null
+                onCreated(newId)
+            } catch (error: Exception) {
+                _mergeState.value = null
+                _message.value = error.message ?: "合并失败"
+            }
+        }
+    }
+
+    private val _message = MutableStateFlow<String?>(null)
+
+    /** 一行提示（合并失败、移动完成之类） */
+    val message: StateFlow<String?> = _message.asStateFlow()
+
+    fun clearMessage() {
+        _message.value = null
+    }
 
     private val _importState = MutableStateFlow(ImportState())
 
