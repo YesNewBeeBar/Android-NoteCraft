@@ -72,11 +72,28 @@ class FloatingBallService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_HIDE) {
-            stopSelf()
-            return START_NOT_STICKY
+        when (intent?.action) {
+            ACTION_HIDE -> {
+                stopSelf()
+                return START_NOT_STICKY
+            }
+
+            // 改大小 / 透明度 / 图案后走这里。
+            // 千万不要用「先 stopSelf 再 start」—— stopSelf() 不带 startId 是无条件停止，
+            // 会和紧随其后的 start 打架，表现就是悬浮球直接消失、要关开一次才回来。
+            // 已经挂上了就原地改属性，连一帧都不会闪。
+            ACTION_REFRESH -> {
+                scope.launch {
+                    val latest = runCatching {
+                        (application as NoteCraftApp).container.settings.current()
+                    }.getOrNull()
+                    if (root == null) buildBall(latest) else applySettingsInPlace(latest)
+                }
+                return START_STICKY
+            }
+
+            else -> showBall()
         }
-        showBall()
         return START_STICKY
     }
 
@@ -217,6 +234,37 @@ class FloatingBallService : Service() {
         }
 
         observeState()
+    }
+
+    /** 只改属性，不重搭视图：拖滑块时球一直在，不会闪 */
+    private fun applySettingsInPlace(settings: AppSettings?) {
+        val container = root ?: return
+        val ball = bubble ?: return
+
+        val sizePx = dp((settings?.floatingBallSizeDp ?: 56).coerceIn(40, 96))
+        (ball.layoutParams as? LinearLayout.LayoutParams)?.let { lp ->
+            if (lp.width != sizePx || lp.height != sizePx) {
+                lp.width = sizePx
+                lp.height = sizePx
+                ball.layoutParams = lp
+            }
+        }
+
+        container.alpha = (settings?.floatingBallAlpha ?: 0.9f).coerceIn(0.3f, 1f)
+
+        // 图案一般不会变，变了才动（解码图片有成本）
+        val path = settings?.floatingBallIconPath.orEmpty()
+        val wantedBitmap = path.isNotBlank() && File(path).exists()
+        if (!wantedBitmap) {
+            ball.scaleType = ImageView.ScaleType.CENTER_INSIDE
+            ball.clipToOutline = false
+            ball.setImageResource(R.drawable.ic_bubble_mic)
+        } else if (ball.drawable !is android.graphics.drawable.BitmapDrawable) {
+            loadCustomIcon(path)
+        }
+
+        clampInto()
+        params?.let { runCatching { windowManager?.updateViewLayout(container, it) } }
     }
 
     private fun removeBall() {
@@ -435,6 +483,7 @@ class FloatingBallService : Service() {
 
         const val ACTION_SHOW = "com.dsh.notes.action.SHOW_BALL"
         const val ACTION_HIDE = "com.dsh.notes.action.HIDE_BALL"
+        const val ACTION_REFRESH = "com.dsh.notes.action.REFRESH_BALL"
 
         fun canShow(context: Context): Boolean = Settings.canDrawOverlays(context)
 
@@ -449,11 +498,14 @@ class FloatingBallService : Service() {
             runCatching { context.startService(intent) }
         }
 
-        /** 设置里改了图案 / 大小 / 透明度之后重建，让改动立刻生效 */
-        fun restart(context: Context) {
+        /**
+         * 设置里改了图案 / 大小 / 透明度之后重建悬浮窗。
+         * 只发一条 REFRESH，服务自己把视图拆了重搭 —— 不重启服务，球不会消失。
+         */
+        fun refresh(context: Context) {
             if (!canShow(context)) return
-            hide(context)
-            show(context)
+            val intent = Intent(context, FloatingBallService::class.java).setAction(ACTION_REFRESH)
+            runCatching { ContextCompat.startForegroundService(context, intent) }
         }
     }
 }

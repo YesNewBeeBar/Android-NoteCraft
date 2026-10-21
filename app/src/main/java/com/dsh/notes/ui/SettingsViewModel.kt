@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.io.File
+import kotlin.math.roundToInt
 
 class SettingsViewModel(private val container: AppContainer) : ViewModel() {
 
@@ -59,18 +60,39 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
     }
 
     fun setFloatingBallSize(dp: Int) {
-        viewModelScope.launch { container.settings.setFloatingBallSize(dp) }
+        viewModelScope.launch {
+            container.settings.setFloatingBallSize(dp)
+            refreshBallIfEnabled()
+        }
     }
 
     fun setFloatingBallAlpha(alpha: Float) {
-        viewModelScope.launch { container.settings.setFloatingBallAlpha(alpha) }
+        // 吸附到 5% 一档：拖滑块时不会每移动一像素就重建一次悬浮窗
+        val snapped = (alpha * 20).roundToInt() / 20f
+        viewModelScope.launch {
+            container.settings.setFloatingBallAlpha(snapped)
+            refreshBallIfEnabled()
+        }
     }
 
-    /** 大小/透明度/图案改完后重建一次悬浮窗，让改动立刻可见 */
-    fun restartFloatingBall() {
+    /** 恢复默认：图案、大小、不透明度一起回去 */
+    fun resetFloatingBall() {
         viewModelScope.launch {
-            val enabled = container.settings.current().floatingBallEnabled
-            if (enabled) FloatingBallService.restart(container.context)
+            runCatching { File(container.context.filesDir, FLOATING_ICON_NAME).delete() }
+            container.settings.setFloatingBallIconPath("")
+            container.settings.setFloatingBallSize(DEFAULT_BALL_SIZE)
+            container.settings.setFloatingBallAlpha(DEFAULT_BALL_ALPHA)
+            refreshBallIfEnabled()
+        }
+    }
+
+    /**
+     * 让悬浮窗按最新设置重建。
+     * 写设置和重建放在同一个协程里，保证顺序：先落盘，再重建，不会读到旧值。
+     */
+    private suspend fun refreshBallIfEnabled() {
+        if (container.settings.current().floatingBallEnabled) {
+            FloatingBallService.refresh(container.context)
         }
     }
 
@@ -84,23 +106,17 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
                 } ?: throw IllegalStateException("读不到这张图")
 
                 container.settings.setFloatingBallIconPath(target.absolutePath)
-                FloatingBallService.restart(container.context)
+                refreshBallIfEnabled()
             } catch (error: Exception) {
                 _message.value = error.message ?: "设置图案失败"
             }
         }
     }
 
-    fun resetFloatingBallIcon() {
-        viewModelScope.launch {
-            runCatching { File(container.context.filesDir, FLOATING_ICON_NAME).delete() }
-            container.settings.setFloatingBallIconPath("")
-            FloatingBallService.restart(container.context)
-        }
-    }
-
     companion object {
         private const val FLOATING_ICON_NAME = "floating_ball_icon.png"
+        private const val DEFAULT_BALL_SIZE = 56
+        private const val DEFAULT_BALL_ALPHA = 0.9f
     }
 
     val defaultSystemPrompt: String = PromptBuilder.DEFAULT_SYSTEM_PROMPT

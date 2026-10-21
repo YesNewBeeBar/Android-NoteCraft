@@ -565,7 +565,6 @@ fun SettingsScreen(
                     Slider(
                         value = settings.floatingBallSizeDp.toFloat(),
                         onValueChange = { viewModel.setFloatingBallSize(it.toInt()) },
-                        onValueChangeFinished = viewModel::restartFloatingBall,
                         valueRange = 40f..96f,
                         steps = 6
                     )
@@ -579,7 +578,6 @@ fun SettingsScreen(
                     Slider(
                         value = settings.floatingBallAlpha,
                         onValueChange = { viewModel.setFloatingBallAlpha(it) },
-                        onValueChangeFinished = viewModel::restartFloatingBall,
                         valueRange = 0.3f..1f
                     )
 
@@ -590,15 +588,14 @@ fun SettingsScreen(
                             Spacer(Modifier.size(6.dp))
                             Text("从相册选图案")
                         }
-                        if (settings.floatingBallIconPath.isNotBlank()) {
-                            Spacer(Modifier.size(8.dp))
-                            TextButton(onClick = viewModel::resetFloatingBallIcon) {
-                                Text("恢复默认")
-                            }
+                        Spacer(Modifier.size(8.dp))
+                        TextButton(onClick = viewModel::resetFloatingBall) {
+                            Text("恢复默认")
                         }
                     }
                     Text(
-                        text = "图案会被裁成圆形。不选的话用内置的麦克风图标。",
+                        text = "「恢复默认」会把图案、大小、不透明度一起还原。" +
+                            "图案会被裁成圆形，不选的话用内置的麦克风图标。",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = 4.dp)
