@@ -64,9 +64,8 @@ class FloatingBallService : Service() {
     private var panelWidth = 0
     private var expanded = false
 
-    /** 当前已经应用到视图上的值。预览时以它为基准，免得每次去磁盘读设置 */
-    private var appliedSize = 56
-    private var appliedAlpha = 0.9f
+    /** 当前已加载的自定义图案的「文件修改时间」；0 表示当前是内置麦克风图标 */
+    private var loadedIconStamp = 0L
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -88,43 +87,27 @@ class FloatingBallService : Service() {
                 return START_NOT_STICKY
             }
 
-            /*
-             * 拖滑块时的即时预览。这条路径「不碰磁盘、不读设置、不起协程」：
-             * 值直接从 intent 带过来，落到已记住的 applied 字段上，同步改视图。
-             * 之前这里每次都 await settings.current()，相当于每拖一格就做一次
-             * DataStore I/O + 协程调度，手指当然追不上。
-             */
-            ACTION_PREVIEW -> {
-                if (root == null) {
-                    // 球根本没挂上，预览没有意义；顺手把误启动的服务收掉，别留一条空通知
-                    stopSelf()
-                    return START_NOT_STICKY
-                }
+            // 改大小 / 透明度 / 图案后走这里。
+            // 千万别用「先 stopSelf 再 start」—— stopSelf() 不带 startId 是无条件停止，
+            // 会和紧随其后的 start 打架，表现就是悬浮球直接消失、要关开一次才回来。
+            // 已经挂上了就原地改属性，连一帧都不会闪。
+            ACTION_REFRESH -> {
+                // 拖滑块时把目标值直接带过来，服务就不必等磁盘写完再读，跟手得多
                 val sizeOverride = command.getIntExtra(EXTRA_SIZE, -1).takeIf { it > 0 }
                 val alphaOverride = if (command.hasExtra(EXTRA_ALPHA)) {
                     command.getFloatExtra(EXTRA_ALPHA, -1f).takeIf { it >= 0f }
                 } else {
                     null
                 }
-                applyInPlace(
-                    sizeDp = sizeOverride ?: appliedSize,
-                    alpha = alphaOverride ?: appliedAlpha
-                )
-                return START_STICKY
-            }
-
-            /*
-             * 图案变了 / 恢复默认：走完整重建。
-             * 不再依赖「文件 mtime 有没有变」这种推断 —— 直接拆了重搭，
-             * 和用户手动关开一次等价，那条路是确定能刷新的。
-             */
-            ACTION_RELOAD -> {
                 scope.launch {
-                    val latest = runCatching {
+                    val base = runCatching {
                         (application as NoteCraftApp).container.settings.current()
                     }.getOrNull() ?: AppSettings()
-                    removeBall()
-                    buildBall(latest)
+                    val effective = base.copy(
+                        floatingBallSizeDp = sizeOverride ?: base.floatingBallSizeDp,
+                        floatingBallAlpha = alphaOverride ?: base.floatingBallAlpha
+                    )
+                    if (root == null) buildBall(effective) else applySettingsInPlace(effective)
                 }
                 return START_STICKY
             }
@@ -161,10 +144,8 @@ class FloatingBallService : Service() {
     private fun buildBall(settings: AppSettings?) {
         if (root != null) return
 
-        appliedSize = (settings?.floatingBallSizeDp ?: 56).coerceIn(40, 96)
-        appliedAlpha = (settings?.floatingBallAlpha ?: 0.9f).coerceIn(0.3f, 1f)
-        val sizePx = dp(appliedSize)
-        val alpha = appliedAlpha
+        val sizePx = dp((settings?.floatingBallSizeDp ?: 56).coerceIn(40, 96))
+        val alpha = (settings?.floatingBallAlpha ?: 0.9f).coerceIn(0.3f, 1f)
         val iconPath = settings?.floatingBallIconPath.orEmpty()
 
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
@@ -268,27 +249,24 @@ class FloatingBallService : Service() {
         btnStop = stop
 
         // 自定义图案要等 bubble 赋值之后才能设（loadCustomIcon 读的是这个字段）
-        if (iconPath.isBlank() || !loadCustomIcon(iconPath)) {
+        val iconFile = if (iconPath.isNotBlank()) File(iconPath) else null
+        val stamp = if (iconFile != null && iconFile.exists()) iconFile.lastModified() else 0L
+        if (stamp == 0L || !loadCustomIcon(iconPath)) {
             ball.setImageResource(R.drawable.ic_bubble_mic)
+            loadedIconStamp = 0L
+        } else {
+            loadedIconStamp = stamp
         }
 
         observeState()
     }
 
-    /**
-     * 同步改尺寸 / 透明度。
-     *
-     * 不读磁盘、不起协程、不做任何 binder 之外的等待 —— 拖滑块时每一帧都会调到这里，
-     * 中间多一次 DataStore 读就会明显发黏。
-     */
-    private fun applyInPlace(sizeDp: Int, alpha: Float) {
+    /** 只改属性，不重搭视图：拖滑块时球一直在，不会闪 */
+    private fun applySettingsInPlace(settings: AppSettings?) {
         val container = root ?: return
         val ball = bubble ?: return
 
-        appliedSize = sizeDp.coerceIn(40, 96)
-        appliedAlpha = alpha.coerceIn(0.3f, 1f)
-
-        val sizePx = dp(appliedSize)
+        val sizePx = dp((settings?.floatingBallSizeDp ?: 56).coerceIn(40, 96))
         (ball.layoutParams as? LinearLayout.LayoutParams)?.let { lp ->
             if (lp.width != sizePx || lp.height != sizePx) {
                 lp.width = sizePx
@@ -297,7 +275,27 @@ class FloatingBallService : Service() {
             }
         }
 
-        if (container.alpha != appliedAlpha) container.alpha = appliedAlpha
+        container.alpha = (settings?.floatingBallAlpha ?: 0.9f).coerceIn(0.3f, 1f)
+
+        /*
+         * 图案刷新靠「文件修改时间」判断，不能靠 drawable 类型。
+         * 用户重新挑一张图时，写进去的路径还是同一个文件，
+         * 只拿「是不是 BitmapDrawable」判断会一直为真，于是永远不重载 —— 换图不生效。
+         */
+        val path = settings?.floatingBallIconPath.orEmpty()
+        val file = if (path.isNotBlank()) File(path) else null
+        val stamp = if (file != null && file.exists()) file.lastModified() else 0L
+
+        if (stamp == 0L) {
+            if (loadedIconStamp != 0L) {
+                ball.scaleType = ImageView.ScaleType.CENTER_INSIDE
+                ball.clipToOutline = false
+                ball.setImageResource(R.drawable.ic_bubble_mic)
+                loadedIconStamp = 0L
+            }
+        } else if (stamp != loadedIconStamp) {
+            if (loadCustomIcon(path)) loadedIconStamp = stamp
+        }
 
         clampInto()
         params?.let { runCatching { windowManager?.updateViewLayout(container, it) } }
@@ -310,6 +308,7 @@ class FloatingBallService : Service() {
         bubble = null
         params = null
         expanded = false
+        loadedIconStamp = 0L
     }
 
     /** 拖动移动；轻点展开 / 收起操作条 */
@@ -428,9 +427,9 @@ class FloatingBallService : Service() {
     }
 
     private fun loadCustomIcon(path: String): Boolean {
-        if (path.isBlank() || !File(path).exists()) return false
-        // 相册里的图动辄四五千像素，按悬浮球实际尺寸降采样，别整张解进来
-        val bitmap = decodeScaled(path, dp(appliedSize).coerceAtLeast(48)) ?: return false
+        if (path.isBlank()) return false
+        if (!File(path).exists()) return false
+        val bitmap = runCatching { BitmapFactory.decodeFile(path) }.getOrNull() ?: return false
         val view = bubble ?: return false
         view.setImageBitmap(bitmap)
         view.scaleType = ImageView.ScaleType.CENTER_CROP
@@ -441,23 +440,6 @@ class FloatingBallService : Service() {
             }
         }
         return true
-    }
-
-    /** 只解出需要的大小，避免大图解码慢 / OOM */
-    private fun decodeScaled(path: String, targetPx: Int): android.graphics.Bitmap? {
-        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        runCatching { BitmapFactory.decodeFile(path, bounds) }
-        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
-
-        var sample = 1
-        while (bounds.outWidth / (sample * 2) >= targetPx &&
-            bounds.outHeight / (sample * 2) >= targetPx
-        ) {
-            sample *= 2
-        }
-
-        val options = BitmapFactory.Options().apply { inSampleSize = sample }
-        return runCatching { BitmapFactory.decodeFile(path, options) }.getOrNull()
     }
 
     private fun actionButton(
@@ -536,12 +518,7 @@ class FloatingBallService : Service() {
 
         const val ACTION_SHOW = "com.dsh.notes.action.SHOW_BALL"
         const val ACTION_HIDE = "com.dsh.notes.action.HIDE_BALL"
-
-        /** 拖滑块时的即时预览：同步改视图，不碰磁盘 */
-        const val ACTION_PREVIEW = "com.dsh.notes.action.PREVIEW_BALL"
-
-        /** 图案变化 / 恢复默认：拆掉重搭，等价于手动关开一次 */
-        const val ACTION_RELOAD = "com.dsh.notes.action.RELOAD_BALL"
+        const val ACTION_REFRESH = "com.dsh.notes.action.REFRESH_BALL"
 
         /** 拖滑块时的即时预览值：带上就不用等服务从磁盘读 */
         const val EXTRA_SIZE = "extra_size_dp"
@@ -561,27 +538,16 @@ class FloatingBallService : Service() {
         }
 
         /**
-         * 拖动滑块时的即时预览。
+         * 设置里改了图案 / 大小 / 透明度之后重建悬浮窗。
+         * 只发一条 REFRESH，服务自己把属性改掉 —— 不重启服务，球不会消失。
          *
-         * 刻意不做权限检查、不起前台服务、不读设置：这条路径每一帧都会被调用，
-         * 任何一次 binder 往返都会变成手指上的黏滞感。
+         * @param sizeDp 拖动时的即时预览值；传 null 则用磁盘上的设置
          */
-        fun preview(context: Context, sizeDp: Int? = null, alpha: Float? = null) {
-            val intent = Intent(context, FloatingBallService::class.java)
-                .setAction(ACTION_PREVIEW)
+        fun refresh(context: Context, sizeDp: Int? = null, alpha: Float? = null) {
+            if (!canShow(context)) return
+            val intent = Intent(context, FloatingBallService::class.java).setAction(ACTION_REFRESH)
             if (sizeDp != null) intent.putExtra(EXTRA_SIZE, sizeDp)
             if (alpha != null) intent.putExtra(EXTRA_ALPHA, alpha)
-            runCatching { context.startService(intent) }
-        }
-
-        /**
-         * 图案变了 / 恢复默认：整块重建。
-         * 不做「文件时间戳有没有变」这类推断 —— 直接把视图拆了重搭，
-         * 和用户手动关开一次是同一件事，确定能刷新。
-         */
-        fun reload(context: Context) {
-            if (!canShow(context)) return
-            val intent = Intent(context, FloatingBallService::class.java).setAction(ACTION_RELOAD)
             runCatching { ContextCompat.startForegroundService(context, intent) }
         }
     }
