@@ -130,7 +130,10 @@ class NotesViewModel(private val container: AppContainer) : ViewModel() {
             ids.forEach { id ->
                 val note = container.repository.get(id) ?: return@forEach
                 runCatching { container.exporter.export(note) }
-                    .onSuccess { done++ }
+                    .onSuccess { result ->
+                        markExported(id, result)
+                        done++
+                    }
                     .onFailure { error ->
                         if ((error as? ExportException)?.needsPick == true) needsPick = true
                         failed++
@@ -208,6 +211,8 @@ class NotesViewModel(private val container: AppContainer) : ViewModel() {
         viewModelScope.launch {
             try {
                 val result = container.exporter.export(note)
+                // 列表里保存也要挂上「已导出」，和详情页保存保持一致
+                markExported(note.id, result)
                 _message.value = "已保存到 ${result.relativePath}"
             } catch (error: ExportException) {
                 _message.value = if (error.needsPick) {
@@ -217,6 +222,20 @@ class NotesViewModel(private val container: AppContainer) : ViewModel() {
                 }
             } catch (error: Exception) {
                 _message.value = error.message ?: "保存失败"
+            }
+        }
+    }
+
+    /** 记下导出到哪里了。列表卡片据此显示「· 已导出」 */
+    private suspend fun markExported(noteId: Long, result: com.dsh.notes.export.ExportResult) {
+        runCatching {
+            container.repository.patch(noteId) {
+                it.copy(
+                    exportTreeUri = result.treeUri,
+                    exportDocumentUri = result.documentUri,
+                    exportRelativePath = result.relativePath,
+                    exportedAt = System.currentTimeMillis()
+                )
             }
         }
     }

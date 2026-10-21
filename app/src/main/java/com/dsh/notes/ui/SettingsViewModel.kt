@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.dsh.notes.AppContainer
 import com.dsh.notes.ai.PromptBuilder
+import com.dsh.notes.audio.FloatingBallService
 import com.dsh.notes.audio.LocalTranscriber
 import com.dsh.notes.data.AppSettings
 import com.dsh.notes.data.AsrEngine
@@ -19,6 +20,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.io.File
 
 class SettingsViewModel(private val container: AppContainer) : ViewModel() {
 
@@ -38,6 +40,68 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
     val localEngineLabel: String = LocalTranscriber(container.context).engineLabel()
 
     val localEngineAvailable: Boolean = LocalTranscriber(container.context).isAvailable
+
+    // ---------------------------------------------------------------- 悬浮球
+
+    fun setFloatingBallEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            container.settings.setFloatingBallEnabled(enabled)
+            if (enabled) {
+                if (FloatingBallService.canShow(container.context)) {
+                    FloatingBallService.show(container.context)
+                } else {
+                    _message.value = "还没有「显示在其他应用上层」权限"
+                }
+            } else {
+                FloatingBallService.hide(container.context)
+            }
+        }
+    }
+
+    fun setFloatingBallSize(dp: Int) {
+        viewModelScope.launch { container.settings.setFloatingBallSize(dp) }
+    }
+
+    fun setFloatingBallAlpha(alpha: Float) {
+        viewModelScope.launch { container.settings.setFloatingBallAlpha(alpha) }
+    }
+
+    /** 大小/透明度/图案改完后重建一次悬浮窗，让改动立刻可见 */
+    fun restartFloatingBall() {
+        viewModelScope.launch {
+            val enabled = container.settings.current().floatingBallEnabled
+            if (enabled) FloatingBallService.restart(container.context)
+        }
+    }
+
+    /** 相册里挑的图存进 App 私有目录，只留一张，避免越攒越多 */
+    fun setFloatingBallIcon(uri: Uri) {
+        viewModelScope.launch {
+            try {
+                val target = File(container.context.filesDir, FLOATING_ICON_NAME)
+                container.context.contentResolver.openInputStream(uri)?.use { input ->
+                    target.outputStream().use { output -> input.copyTo(output) }
+                } ?: throw IllegalStateException("读不到这张图")
+
+                container.settings.setFloatingBallIconPath(target.absolutePath)
+                FloatingBallService.restart(container.context)
+            } catch (error: Exception) {
+                _message.value = error.message ?: "设置图案失败"
+            }
+        }
+    }
+
+    fun resetFloatingBallIcon() {
+        viewModelScope.launch {
+            runCatching { File(container.context.filesDir, FLOATING_ICON_NAME).delete() }
+            container.settings.setFloatingBallIconPath("")
+            FloatingBallService.restart(container.context)
+        }
+    }
+
+    companion object {
+        private const val FLOATING_ICON_NAME = "floating_ball_icon.png"
+    }
 
     val defaultSystemPrompt: String = PromptBuilder.DEFAULT_SYSTEM_PROMPT
 

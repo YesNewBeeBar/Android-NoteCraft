@@ -5,6 +5,8 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -749,7 +751,7 @@ private fun SpeechBar(
     }
 }
 
-/** 可疑词逐条确认：点候选即替换，点「保留」就跳过 */
+/** 可疑词逐条确认：点候选即替换，也可以自己填，点「保留」就跳过 */
 @Composable
 private fun SuspectsDialog(
     suspects: List<Suspect>,
@@ -757,13 +759,17 @@ private fun SuspectsDialog(
     onKeep: (String) -> Unit,
     onClose: () -> Unit
 ) {
+    // 每个可疑词各自的「自己填写」草稿
+    var drafts by remember { mutableStateOf(mapOf<String, String>()) }
+
     AlertDialog(
         onDismissRequest = onClose,
         title = { Text("检查疑似错误") },
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 Text(
-                    text = "下面这些词在上下文里可能听错了。点一个候选写法即可替换，也可以保留原文。",
+                    text = "下面这些词在上下文里可能听错了。点候选即可替换，也可以自己填；" +
+                        "候选多的话左右滑一下就能看全。",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -782,17 +788,52 @@ private fun SuspectsDialog(
                         )
                     }
                     Spacer(Modifier.height(4.dp))
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        suspect.suggestions.forEach { candidate ->
-                            AssistChip(
-                                onClick = { onApply(suspect.word, candidate) },
-                                label = { Text(candidate) }
-                            )
+
+                    // 候选区可横向滚动，「保留」固定在右边 —— 候选再长也挤不掉它
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        LazyRow(
+                            modifier = Modifier.weight(1f),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            items(items = suspect.suggestions) { candidate ->
+                                AssistChip(
+                                    onClick = { onApply(suspect.word, candidate) },
+                                    label = { Text(candidate) }
+                                )
+                            }
+                            if (suspect.suggestions.isEmpty()) {
+                                item {
+                                    Text(
+                                        text = "没有候选，可以直接在下面填写",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
                         }
+                        Spacer(Modifier.size(4.dp))
                         TextButton(onClick = { onKeep(suspect.word) }) { Text("保留") }
+                    }
+
+                    // 自己填写：输入框 + 替换
+                    val draft = drafts[suspect.word].orEmpty()
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedTextField(
+                            value = draft,
+                            onValueChange = { drafts = drafts + (suspect.word to it) },
+                            placeholder = { Text("自己填写正确的写法") },
+                            singleLine = true,
+                            textStyle = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(1f)
+                        )
+                        TextButton(
+                            onClick = {
+                                onApply(suspect.word, draft)
+                                drafts = drafts - suspect.word
+                            },
+                            enabled = draft.isNotBlank() && draft != suspect.word
+                        ) { Text("替换") }
                     }
                 }
             }

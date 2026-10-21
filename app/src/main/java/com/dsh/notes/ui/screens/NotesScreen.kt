@@ -679,27 +679,26 @@ private fun FolderBar(
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         item {
-            FilterChip(
+            FolderChip(
+                label = "全部",
                 selected = filter is FolderFilter.All,
-                onClick = { onSelect(FolderFilter.All) },
-                label = { Text("全部") }
+                onClick = { onSelect(FolderFilter.All) }
             )
         }
         // 「新建」放在未分类前面：新建是主动作，先够得着
         item {
-            AssistChip(
+            FolderChip(
+                label = "新建",
+                selected = false,
                 onClick = onNewFolder,
-                label = { Text("新建") },
-                leadingIcon = {
-                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                }
+                leadingIcon = Icons.Default.Add
             )
         }
         item {
-            FilterChip(
+            FolderChip(
+                label = "未分类",
                 selected = filter is FolderFilter.Unfiled,
-                onClick = { onSelect(FolderFilter.Unfiled) },
-                label = { Text("未分类") }
+                onClick = { onSelect(FolderFilter.Unfiled) }
             )
         }
         items(items = folders, key = { it.id }) { folder ->
@@ -723,10 +722,14 @@ private fun FolderChip(
     label: String,
     selected: Boolean,
     onClick: () -> Unit,
-    onLongClick: () -> Unit
+    onLongClick: (() -> Unit)? = null,
+    leadingIcon: androidx.compose.ui.graphics.vector.ImageVector? = null
 ) {
     Surface(
-        modifier = Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick),
+        modifier = Modifier.combinedClickable(
+            onClick = onClick,
+            onLongClick = { onLongClick?.invoke() }
+        ),
         shape = RoundedCornerShape(8.dp),
         color = if (selected) {
             MaterialTheme.colorScheme.secondaryContainer
@@ -747,11 +750,20 @@ private fun FolderChip(
             }
         )
     ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelLarge,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-        )
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (leadingIcon != null) {
+                Icon(
+                    imageVector = leadingIcon,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(Modifier.size(4.dp))
+            }
+            Text(text = label, style = MaterialTheme.typography.labelLarge)
+        }
     }
 }
 

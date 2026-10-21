@@ -18,6 +18,10 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- 应用内下载新版本后拉起系统安装器（自更新用，上架商店才需要去掉） -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- 悬浮球：显示在其他应用上层 -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <!-- 悬浮球靠前台服务常驻（specialUse 类型），Android 14 起要单独申请 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
     <uses-feature
         android:name="android.hardware.microphone"
@@ -85,6 +89,17 @@
             android:exported="false"
             android:foregroundServiceType="microphone"
             android:stopWithTask="false" />
+
+        <!-- 悬浮球：前台服务保证进程不被回收，悬浮窗才挂得住 -->
+        <service
+            android:name=".audio.FloatingBallService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse"
+            android:stopWithTask="false">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="悬浮球：从任意界面控制录音的开始、暂停与结束" />
+        </service>
 
         <receiver
             android:name=".audio.BootReceiver"

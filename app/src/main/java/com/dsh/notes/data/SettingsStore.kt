@@ -147,6 +147,19 @@ data class AppSettings(
     /** 笔记页的显示方式：列表 / 图标网格 / 文件夹 */
     val notesViewMode: NotesViewMode = NotesViewMode.LIST,
 
+    // ---------- 悬浮球 ----------
+    /** 是否显示悬浮球（需要「显示在其他应用上层」权限） */
+    val floatingBallEnabled: Boolean = false,
+
+    /** 悬浮球直径（dp） */
+    val floatingBallSizeDp: Int = 56,
+
+    /** 悬浮球不透明度 0.3 ~ 1.0 */
+    val floatingBallAlpha: Float = 0.9f,
+
+    /** 自定义图案的文件路径；空表示用内置麦克风图标 */
+    val floatingBallIconPath: String = "",
+
     // ---------- 更新 ----------
     /** 上次检查更新的时间戳；自动检查靠它限流，免得每次开 App 都打一次 GitHub */
     val lastUpdateCheckAt: Long = 0L,
@@ -219,6 +232,10 @@ class SettingsStore(private val context: Context) {
 
         val themeMode = stringPreferencesKey("theme_mode")
         val notesViewMode = stringPreferencesKey("notes_view_mode")
+        val floatingBallEnabled = booleanPreferencesKey("floating_ball_enabled")
+        val floatingBallSize = stringPreferencesKey("floating_ball_size")
+        val floatingBallAlpha = stringPreferencesKey("floating_ball_alpha")
+        val floatingBallIconPath = stringPreferencesKey("floating_ball_icon_path")
 
         val lastUpdateCheckAt = stringPreferencesKey("last_update_check_at")
         val ignoredUpdateVersion = stringPreferencesKey("ignored_update_version")
@@ -258,6 +275,10 @@ class SettingsStore(private val context: Context) {
             notesViewMode = runCatching {
                 NotesViewMode.valueOf(prefs[Keys.notesViewMode] ?: NotesViewMode.LIST.name)
             }.getOrDefault(NotesViewMode.LIST),
+            floatingBallEnabled = prefs[Keys.floatingBallEnabled] ?: false,
+            floatingBallSizeDp = (prefs[Keys.floatingBallSize] ?: "56").toIntOrNull() ?: 56,
+            floatingBallAlpha = (prefs[Keys.floatingBallAlpha] ?: "0.9").toFloatOrNull() ?: 0.9f,
+            floatingBallIconPath = prefs[Keys.floatingBallIconPath] ?: "",
             lastUpdateCheckAt = (prefs[Keys.lastUpdateCheckAt] ?: "0").toLongOrNull() ?: 0L,
             ignoredUpdateVersion = prefs[Keys.ignoredUpdateVersion] ?: ""
         )
@@ -313,6 +334,14 @@ class SettingsStore(private val context: Context) {
     suspend fun setThemeMode(value: ThemeMode) = put(Keys.themeMode, value.name)
 
     suspend fun setNotesViewMode(value: NotesViewMode) = put(Keys.notesViewMode, value.name)
+
+    suspend fun setFloatingBallEnabled(value: Boolean) = put(Keys.floatingBallEnabled, value)
+
+    suspend fun setFloatingBallSize(dp: Int) = put(Keys.floatingBallSize, dp.toString())
+
+    suspend fun setFloatingBallAlpha(alpha: Float) = put(Keys.floatingBallAlpha, alpha.toString())
+
+    suspend fun setFloatingBallIconPath(path: String) = put(Keys.floatingBallIconPath, path)
 
     suspend fun setLastUpdateCheckAt(value: Long) = put(Keys.lastUpdateCheckAt, value.toString())
 

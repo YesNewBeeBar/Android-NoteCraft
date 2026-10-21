@@ -1,5 +1,8 @@
 package com.dsh.notes.ui.screens
 
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -18,6 +21,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CleaningServices
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.RadioButtonChecked
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Info
@@ -48,6 +53,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -63,8 +69,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.dsh.notes.audio.FloatingBallService
 import com.dsh.notes.data.AppSettings
 import com.dsh.notes.data.AsrEngine
 import com.dsh.notes.data.ConfigArea
@@ -105,6 +113,49 @@ fun SettingsScreen(
     var showClearCacheDialog by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
+
+    // ---- 悬浮球 ----
+    // 权限在系统设置里授予，用户回来时必须重新读一次，所以挂在 resume 上
+    var hasOverlayPermission by remember { mutableStateOf(FloatingBallService.canShow(context)) }
+    // 用户是先拨开关、再去授权的：授权回来要记得把开关真正打开
+    var pendingEnable by remember { mutableStateOf(false) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = object : androidx.lifecycle.LifecycleEventObserver {
+            override fun onStateChanged(
+                source: androidx.lifecycle.LifecycleOwner,
+                event: androidx.lifecycle.Lifecycle.Event
+            ) {
+                if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                    val granted = FloatingBallService.canShow(context)
+                    hasOverlayPermission = granted
+                    if (granted && pendingEnable) {
+                        pendingEnable = false
+                        viewModel.setFloatingBallEnabled(true)
+                    }
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    fun requestOverlayPermission() {
+        runCatching {
+            context.startActivity(
+                Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:${context.packageName}")
+                )
+            )
+        }
+    }
+
+    val pickBubbleIcon = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri ->
+        uri?.let { viewModel.setFloatingBallIcon(it) }
+    }
 
     // 配置体检：哪个框有问题就标红并说明原因。用的是和录音页同一份判定，
     // 所以用户改好一个字段，红标立刻消失，不会两边说法不一致。
@@ -457,6 +508,102 @@ fun SettingsScreen(
                     checked = settings.autoExport,
                     onCheckedChange = viewModel::setAutoExport
                 )
+            }
+
+            // ================= 悬浮球 =================
+            SettingsSection(
+                icon = Icons.Default.RadioButtonChecked,
+                title = "悬浮球",
+                subtitle = "在任何界面一键开始 / 暂停 / 结束录音"
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "显示悬浮球",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = if (hasOverlayPermission) {
+                                "轻点展开操作，拖动可以挪位置"
+                            } else {
+                                "需要「显示在其他应用上层」权限"
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (hasOverlayPermission) {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            } else {
+                                MaterialTheme.colorScheme.error
+                            }
+                        )
+                    }
+                    Switch(
+                        checked = settings.floatingBallEnabled,
+                        onCheckedChange = { enabled ->
+                            if (enabled && !hasOverlayPermission) {
+                                pendingEnable = true
+                                requestOverlayPermission()
+                            } else {
+                                viewModel.setFloatingBallEnabled(enabled)
+                            }
+                        }
+                    )
+                }
+
+                if (settings.floatingBallEnabled) {
+                    Spacer(Modifier.height(12.dp))
+
+                    // 大小
+                    Text(
+                        text = "大小：${settings.floatingBallSizeDp} dp",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Slider(
+                        value = settings.floatingBallSizeDp.toFloat(),
+                        onValueChange = { viewModel.setFloatingBallSize(it.toInt()) },
+                        onValueChangeFinished = viewModel::restartFloatingBall,
+                        valueRange = 40f..96f,
+                        steps = 6
+                    )
+
+                    // 透明度
+                    Text(
+                        text = "不透明度：${(settings.floatingBallAlpha * 100).toInt()}%",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Slider(
+                        value = settings.floatingBallAlpha,
+                        onValueChange = { viewModel.setFloatingBallAlpha(it) },
+                        onValueChangeFinished = viewModel::restartFloatingBall,
+                        valueRange = 0.3f..1f
+                    )
+
+                    Spacer(Modifier.height(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedButton(onClick = { pickBubbleIcon.launch("image/*") }) {
+                            Icon(Icons.Default.Image, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.size(6.dp))
+                            Text("从相册选图案")
+                        }
+                        if (settings.floatingBallIconPath.isNotBlank()) {
+                            Spacer(Modifier.size(8.dp))
+                            TextButton(onClick = viewModel::resetFloatingBallIcon) {
+                                Text("恢复默认")
+                            }
+                        }
+                    }
+                    Text(
+                        text = "图案会被裁成圆形。不选的话用内置的麦克风图标。",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
             }
 
             // ================= 存储与缓存 =================
