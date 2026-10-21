@@ -28,6 +28,14 @@
         <intent>
             <action android:name="android.speech.RecognitionService" />
         </intent>
+        <!--
+          朗读用的系统 TTS。Android 11 起有包可见性限制：
+          不在这里声明 TTS_SERVICE，TextToSpeech 就发现不了任何引擎，
+          初始化直接失败 —— 即使设备上明明装了引擎。
+        -->
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
         <intent>
             <action android:name="android.intent.action.SEND" />
             <data android:mimeType="audio/*" />

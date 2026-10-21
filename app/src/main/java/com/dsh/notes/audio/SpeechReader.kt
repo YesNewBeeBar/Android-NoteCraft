@@ -1,6 +1,10 @@
 package com.dsh.notes.audio
 
 import android.content.Context
+import android.content.Intent
+import android.os.Handler
+import android.os.Looper
+import android.provider.Settings
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -38,31 +42,53 @@ class SpeechReader(context: Context) {
     private var pendingSpeed = 1.0f
     private var pendingSource = ""
 
+    private val mainHandler = Handler(Looper.getMainLooper())
+
     init {
-        tts = TextToSpeech(context.applicationContext) { status ->
-            if (status != TextToSpeech.SUCCESS) {
-                _state.value = _state.value.copy(error = "这台设备没有可用的系统语音引擎")
-                return@TextToSpeech
-            }
-            val engine = tts ?: return@TextToSpeech
-            engine.setOnUtteranceProgressListener(listener)
+        val engine = TextToSpeech(context.applicationContext) { status ->
+            // 回调可能在构造函数还没返回时就触发（甚至来自 Binder 线程），
+            // 那时 tts 还是 null。统一 post 到主线程，等赋值完成后处理。
+            mainHandler.post { applyInit(status) }
+        }
+        tts = engine
+    }
 
-            val locale = Locale.CHINA
-            val avail = engine.isLanguageAvailable(locale)
-            if (avail == TextToSpeech.LANG_MISSING_DATA || avail == TextToSpeech.LANG_NOT_SUPPORTED) {
-                // 中文包没装：退回系统默认语言，至少能念英文/数字
+    private fun applyInit(status: Int) {
+        val engine = tts
+        if (status != TextToSpeech.SUCCESS || engine == null) {
+            _state.value = _state.value.copy(
+                ready = false,
+                error = "系统语音引擎初始化失败，请在系统设置里确认已安装并选用 TTS 引擎"
+            )
+            return
+        }
+
+        engine.setOnUtteranceProgressListener(listener)
+
+        val preferred = Locale.SIMPLIFIED_CHINESE
+        val availability = engine.isLanguageAvailable(preferred)
+        when {
+            availability == TextToSpeech.LANG_MISSING_DATA ||
+                availability == TextToSpeech.LANG_NOT_SUPPORTED -> {
+                // 中文数据没装：先退回系统默认语言，至少能念；同时如实告诉用户
                 engine.language = Locale.getDefault()
-            } else {
-                engine.language = locale
+                _state.value = _state.value.copy(
+                    ready = true,
+                    error = "系统语音引擎缺少中文数据，已退回默认语言"
+                )
             }
 
-            _state.value = _state.value.copy(ready = true)
-            pendingText?.let { text ->
-                val source = pendingSource
-                val speed = pendingSpeed
-                pendingText = null
-                start(text, source, speed)
+            else -> {
+                engine.language = preferred
+                _state.value = _state.value.copy(ready = true, error = null)
             }
+        }
+
+        pendingText?.let { text ->
+            val source = pendingSource
+            val speed = pendingSpeed
+            pendingText = null
+            start(text, source, speed)
         }
     }
 
@@ -200,5 +226,27 @@ class SpeechReader(context: Context) {
         }
         if (buffer.isNotBlank()) parts += buffer.toString().trim()
         return parts.filter { it.isNotBlank() }
+    }
+
+    companion object {
+        /**
+         * 尽力打开系统的「文字转语音」设置页。
+         *
+         * 各家 ROM 的入口不一样，所以按顺序试：
+         *  1. TTS_SETTINGS（很多机型有这个系统 Activity，没公开常量，用字符串）
+         *  2. 无障碍设置（绝大多数机器都列着 TTS 入口）
+         *  3. 应用详情页（最后的兜底）
+         */
+        fun openEngineSettings(context: Context) {
+            val candidates = listOf(
+                Intent("com.android.settings.TTS_SETTINGS"),
+                Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS),
+                Intent(Settings.ACTION_SETTINGS)
+            )
+            candidates.forEach { intent ->
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                if (runCatching { context.startActivity(intent) }.isSuccess) return
+            }
+        }
     }
 }

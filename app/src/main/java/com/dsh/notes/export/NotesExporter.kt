@@ -6,6 +6,7 @@ import android.net.Uri
 import android.util.Log
 import androidx.documentfile.provider.DocumentFile
 import com.dsh.notes.data.Note
+import com.dsh.notes.data.NoteRepository
 import com.dsh.notes.data.SettingsStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -33,7 +34,8 @@ data class ExportResult(
  */
 class NotesExporter(
     private val context: Context,
-    private val settingsStore: SettingsStore
+    private val settingsStore: SettingsStore,
+    private val repository: NoteRepository
 ) {
 
     /**
@@ -64,8 +66,19 @@ class NotesExporter(
             throw ExportException("这个目录没有写入权限，请重新选择")
         }
 
-        // 在选中目录下再建一层子目录，避免把用户的目录塞满散落的 md
-        val target = resolveTargetDir(root, settings.exportSubDir)
+        // 在选中目录下再建一层子目录，避免把用户的目录塞满散落的 md。
+        // 笔记如果归了文件夹，就再往下沉一层：NoteCraft/英语/。
+        val folderName = note.folderId?.let { id ->
+            runCatching { repository.folderName(id) }.getOrNull()
+        }
+        val subDir = buildString {
+            append(settings.exportSubDir.trim().trim('/'))
+            if (!folderName.isNullOrBlank()) {
+                if (isNotEmpty()) append('/')
+                append(FileNameTemplate.sanitize(folderName))
+            }
+        }
+        val target = resolveTargetDir(root, subDir)
 
         val baseName = FileNameTemplate.build(settings.fileNamePattern, note)
         val displayName = "$baseName.md"
@@ -86,7 +99,7 @@ class NotesExporter(
         ExportResult(
             treeUri = treeUri,
             documentUri = document.uri.toString(),
-            relativePath = buildRelativePath(settings.exportSubDir, displayName),
+            relativePath = buildRelativePath(subDir, displayName),
             displayName = displayName
         )
     }

@@ -14,6 +14,9 @@ interface FolderDao {
     @Insert
     suspend fun insert(folder: Folder): Long
 
+    @Query("SELECT * FROM folders WHERE id = :id")
+    suspend fun findById(id: Long): Folder?
+
     @Query("UPDATE folders SET name = :name WHERE id = :id")
     suspend fun rename(id: Long, name: String)
 

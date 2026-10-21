@@ -41,7 +41,7 @@ class AppContainer(private val app: Application) {
 
     val ai: AiClients by lazy { AiClients(settings) }
 
-    val exporter: NotesExporter by lazy { NotesExporter(app, settings) }
+    val exporter: NotesExporter by lazy { NotesExporter(app, settings, repository) }
 
     val pipeline: NotePipeline by lazy { NotePipeline(app, repository, settings, ai, exporter) }
 

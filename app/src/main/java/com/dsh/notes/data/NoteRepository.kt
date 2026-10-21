@@ -17,6 +17,9 @@ class NoteRepository(
     suspend fun createFolder(name: String): Long =
         folderDao.insert(Folder(name = name.trim()))
 
+    /** 文件夹名；找不到返回 null（比如文件夹刚被删掉） */
+    suspend fun folderName(id: Long): String? = folderDao.findById(id)?.name
+
     suspend fun renameFolder(id: Long, name: String) = folderDao.rename(id, name.trim())
 
     /** 删文件夹不删笔记：里面的笔记统统回到「未分类」 */

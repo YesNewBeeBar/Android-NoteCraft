@@ -55,6 +55,32 @@ enum class ThemeMode {
     }
 }
 
+/** 笔记页的显示方式 */
+enum class NotesViewMode {
+    /** 现在的列表式 */
+    LIST,
+
+    /** 图标式：大图标三四个一排，图标是标题首字 */
+    GRID,
+
+    /** 文件夹视图：先看文件夹，点进去看里面有什么 */
+    FOLDERS;
+
+    /** 点标题栏按钮轮到的下一个 */
+    fun next(): NotesViewMode = when (this) {
+        LIST -> GRID
+        GRID -> FOLDERS
+        FOLDERS -> LIST
+    }
+
+    val label: String
+        get() = when (this) {
+            LIST -> "列表式"
+            GRID -> "图标式"
+            FOLDERS -> "文件夹"
+        }
+}
+
 enum class AsrEngine {
     /** 云端 OpenAI 兼容接口（Whisper / SenseVoice 等），准确率高，音频要上传 */
     CLOUD,
@@ -117,6 +143,9 @@ data class AppSettings(
     // ---------- 外观 ----------
     /** 深浅色：默认跟随系统，标题栏右上角的按钮可以手动锁定 */
     val themeMode: ThemeMode = ThemeMode.FOLLOW_SYSTEM,
+
+    /** 笔记页的显示方式：列表 / 图标网格 / 文件夹 */
+    val notesViewMode: NotesViewMode = NotesViewMode.LIST,
 
     // ---------- 更新 ----------
     /** 上次检查更新的时间戳；自动检查靠它限流，免得每次开 App 都打一次 GitHub */
@@ -189,6 +218,7 @@ class SettingsStore(private val context: Context) {
         val fileNamePattern = stringPreferencesKey("file_name_pattern")
 
         val themeMode = stringPreferencesKey("theme_mode")
+        val notesViewMode = stringPreferencesKey("notes_view_mode")
 
         val lastUpdateCheckAt = stringPreferencesKey("last_update_check_at")
         val ignoredUpdateVersion = stringPreferencesKey("ignored_update_version")
@@ -225,6 +255,9 @@ class SettingsStore(private val context: Context) {
             themeMode = runCatching {
                 ThemeMode.valueOf(prefs[Keys.themeMode] ?: ThemeMode.FOLLOW_SYSTEM.name)
             }.getOrDefault(ThemeMode.FOLLOW_SYSTEM),
+            notesViewMode = runCatching {
+                NotesViewMode.valueOf(prefs[Keys.notesViewMode] ?: NotesViewMode.LIST.name)
+            }.getOrDefault(NotesViewMode.LIST),
             lastUpdateCheckAt = (prefs[Keys.lastUpdateCheckAt] ?: "0").toLongOrNull() ?: 0L,
             ignoredUpdateVersion = prefs[Keys.ignoredUpdateVersion] ?: ""
         )
@@ -278,6 +311,8 @@ class SettingsStore(private val context: Context) {
     suspend fun setFileNamePattern(value: String) = put(Keys.fileNamePattern, value.trim())
 
     suspend fun setThemeMode(value: ThemeMode) = put(Keys.themeMode, value.name)
+
+    suspend fun setNotesViewMode(value: NotesViewMode) = put(Keys.notesViewMode, value.name)
 
     suspend fun setLastUpdateCheckAt(value: Long) = put(Keys.lastUpdateCheckAt, value.toString())
 

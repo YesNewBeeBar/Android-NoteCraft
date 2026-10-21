@@ -45,6 +45,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -55,6 +56,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -98,6 +100,14 @@ fun RecordingScreen(
     val context = LocalContext.current
     val hasPermission = remember { mutableStateOf(Permissions.hasAudio(context)) }
     var showPermissionDialog by remember { mutableStateOf(false) }
+
+    // 录音期间别让屏幕睡着：盯着实时上屏的人不该被息屏打断。
+    // 用的是窗口原生的 FLAG_KEEP_SCREEN_ON（View.keepScreenOn），不是 WakeLock。
+    val view = LocalView.current
+    DisposableEffect(state.isRecording) {
+        view.keepScreenOn = state.isRecording
+        onDispose { view.keepScreenOn = false }
+    }
 
     var lastFinishedNoteId by remember { mutableStateOf(0L) }
 

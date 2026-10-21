@@ -9,6 +9,7 @@ import com.dsh.notes.data.AudioSource
 import com.dsh.notes.data.Folder
 import com.dsh.notes.data.Note
 import com.dsh.notes.data.NoteStatus
+import com.dsh.notes.data.NotesViewMode
 import com.dsh.notes.export.ExportException
 import com.dsh.notes.pipeline.ProcessingQueue
 import kotlinx.coroutines.Dispatchers
@@ -18,6 +19,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -42,6 +44,15 @@ class NotesViewModel(private val container: AppContainer) : ViewModel() {
 
     /** 处理队列状态：列表里给排队中的笔记打个标 */
     val queueState: StateFlow<ProcessingQueue.QueueState> = container.queue.state
+
+    /** 笔记页显示方式：列表 / 图标 / 文件夹 */
+    val viewMode: StateFlow<NotesViewMode> = container.settings.flow
+        .map { it.notesViewMode }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), NotesViewMode.LIST)
+
+    fun setViewMode(mode: NotesViewMode) {
+        viewModelScope.launch { container.settings.setNotesViewMode(mode) }
+    }
 
     private val _keyword = MutableStateFlow("")
 
@@ -92,6 +103,46 @@ class NotesViewModel(private val container: AppContainer) : ViewModel() {
     fun moveToFolder(noteIds: List<Long>, folderId: Long?) {
         if (noteIds.isEmpty()) return
         viewModelScope.launch { container.repository.moveNotesToFolder(noteIds, folderId) }
+    }
+
+    /** 多选批量删除（音频文件一起删） */
+    fun deleteMany(ids: List<Long>) {
+        if (ids.isEmpty()) return
+        viewModelScope.launch {
+            var done = 0
+            ids.forEach { id ->
+                val note = container.repository.get(id) ?: return@forEach
+                note.audioPath?.let { path -> runCatching { java.io.File(path).delete() } }
+                container.repository.delete(note)
+                done++
+            }
+            _message.value = "已删除 $done 条"
+        }
+    }
+
+    /** 多选批量保存到默认位置（按各自所属文件夹分目录） */
+    fun exportMany(ids: List<Long>) {
+        if (ids.isEmpty()) return
+        viewModelScope.launch {
+            var done = 0
+            var failed = 0
+            var needsPick = false
+            ids.forEach { id ->
+                val note = container.repository.get(id) ?: return@forEach
+                runCatching { container.exporter.export(note) }
+                    .onSuccess { done++ }
+                    .onFailure { error ->
+                        if ((error as? ExportException)?.needsPick == true) needsPick = true
+                        failed++
+                    }
+            }
+            _message.value = when {
+                needsPick -> "还没设置保存位置，去「设置 → Markdown 存放位置」选一个"
+                failed == 0 -> "已保存 $done 条"
+                done == 0 -> "保存失败：$failed 条都没成功"
+                else -> "已保存 $done 条，$failed 条失败"
+            }
+        }
     }
 
     // ---------------------------------------------------------------- 合并整理

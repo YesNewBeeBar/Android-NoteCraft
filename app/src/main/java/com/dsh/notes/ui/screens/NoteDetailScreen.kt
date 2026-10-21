@@ -71,10 +71,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.dsh.notes.audio.SpeechReader
 import com.dsh.notes.data.AudioSource
 import com.dsh.notes.data.tags
 import com.dsh.notes.pipeline.AudioFileState
@@ -120,6 +122,13 @@ fun NoteDetailScreen(
 
     val context = LocalContext.current
     val snackbar = remember { SnackbarHostState() }
+
+    // 朗读时别息屏：听长篇时屏幕老黑掉很烦。窗口原生标志，用完即关。
+    val windowView = LocalView.current
+    DisposableEffect(speech.playing) {
+        windowView.keepScreenOn = speech.playing
+        onDispose { windowView.keepScreenOn = false }
+    }
 
     var editing by remember { mutableStateOf(false) }
     var titleDraft by remember { mutableStateOf("") }
@@ -700,6 +709,13 @@ private fun SpeechBar(
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                }
+                if (state.error != null) {
+                    // 引擎没配好时给一条出路，而不是只报错
+                    val ctx = LocalContext.current
+                    TextButton(onClick = { SpeechReader.openEngineSettings(ctx) }) {
+                        Text("去设置")
+                    }
                 }
             }
             Spacer(Modifier.height(8.dp))
