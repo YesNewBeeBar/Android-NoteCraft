@@ -59,10 +59,15 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
+    /** 拖动滑块的即时预览：只更新悬浮窗，不写磁盘，所以跟手 */
+    fun previewFloatingBall(sizeDp: Int? = null, alpha: Float? = null) {
+        FloatingBallService.refresh(container.context, sizeDp = sizeDp, alpha = alpha)
+    }
+
     fun setFloatingBallSize(dp: Int) {
         viewModelScope.launch {
             container.settings.setFloatingBallSize(dp)
-            refreshBallIfEnabled()
+            refreshBallIfEnabled(sizeDp = dp)
         }
     }
 
@@ -71,7 +76,7 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
         val snapped = (alpha * 20).roundToInt() / 20f
         viewModelScope.launch {
             container.settings.setFloatingBallAlpha(snapped)
-            refreshBallIfEnabled()
+            refreshBallIfEnabled(alpha = snapped)
         }
     }
 
@@ -82,7 +87,7 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
             container.settings.setFloatingBallIconPath("")
             container.settings.setFloatingBallSize(DEFAULT_BALL_SIZE)
             container.settings.setFloatingBallAlpha(DEFAULT_BALL_ALPHA)
-            refreshBallIfEnabled()
+            refreshBallIfEnabled(sizeDp = DEFAULT_BALL_SIZE, alpha = DEFAULT_BALL_ALPHA)
         }
     }
 
@@ -90,9 +95,9 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
      * 让悬浮窗按最新设置重建。
      * 写设置和重建放在同一个协程里，保证顺序：先落盘，再重建，不会读到旧值。
      */
-    private suspend fun refreshBallIfEnabled() {
+    private suspend fun refreshBallIfEnabled(sizeDp: Int? = null, alpha: Float? = null) {
         if (container.settings.current().floatingBallEnabled) {
-            FloatingBallService.refresh(container.context)
+            FloatingBallService.refresh(container.context, sizeDp = sizeDp, alpha = alpha)
         }
     }
 

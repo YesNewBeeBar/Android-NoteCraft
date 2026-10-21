@@ -64,6 +64,9 @@ class FloatingBallService : Service() {
     private var panelWidth = 0
     private var expanded = false
 
+    /** 当前已加载的自定义图案的「文件修改时间」；0 表示当前是内置麦克风图标 */
+    private var loadedIconStamp = 0L
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
@@ -72,22 +75,39 @@ class FloatingBallService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action) {
+        val command = intent
+        if (command == null) {
+            showBall()
+            return START_STICKY
+        }
+
+        when (command.action) {
             ACTION_HIDE -> {
                 stopSelf()
                 return START_NOT_STICKY
             }
 
             // 改大小 / 透明度 / 图案后走这里。
-            // 千万不要用「先 stopSelf 再 start」—— stopSelf() 不带 startId 是无条件停止，
+            // 千万别用「先 stopSelf 再 start」—— stopSelf() 不带 startId 是无条件停止，
             // 会和紧随其后的 start 打架，表现就是悬浮球直接消失、要关开一次才回来。
             // 已经挂上了就原地改属性，连一帧都不会闪。
             ACTION_REFRESH -> {
+                // 拖滑块时把目标值直接带过来，服务就不必等磁盘写完再读，跟手得多
+                val sizeOverride = command.getIntExtra(EXTRA_SIZE, -1).takeIf { it > 0 }
+                val alphaOverride = if (command.hasExtra(EXTRA_ALPHA)) {
+                    command.getFloatExtra(EXTRA_ALPHA, -1f).takeIf { it >= 0f }
+                } else {
+                    null
+                }
                 scope.launch {
-                    val latest = runCatching {
+                    val base = runCatching {
                         (application as NoteCraftApp).container.settings.current()
-                    }.getOrNull()
-                    if (root == null) buildBall(latest) else applySettingsInPlace(latest)
+                    }.getOrNull() ?: AppSettings()
+                    val effective = base.copy(
+                        floatingBallSizeDp = sizeOverride ?: base.floatingBallSizeDp,
+                        floatingBallAlpha = alphaOverride ?: base.floatingBallAlpha
+                    )
+                    if (root == null) buildBall(effective) else applySettingsInPlace(effective)
                 }
                 return START_STICKY
             }
@@ -229,8 +249,13 @@ class FloatingBallService : Service() {
         btnStop = stop
 
         // 自定义图案要等 bubble 赋值之后才能设（loadCustomIcon 读的是这个字段）
-        if (!loadCustomIcon(iconPath)) {
+        val iconFile = if (iconPath.isNotBlank()) File(iconPath) else null
+        val stamp = if (iconFile != null && iconFile.exists()) iconFile.lastModified() else 0L
+        if (stamp == 0L || !loadCustomIcon(iconPath)) {
             ball.setImageResource(R.drawable.ic_bubble_mic)
+            loadedIconStamp = 0L
+        } else {
+            loadedIconStamp = stamp
         }
 
         observeState()
@@ -252,15 +277,24 @@ class FloatingBallService : Service() {
 
         container.alpha = (settings?.floatingBallAlpha ?: 0.9f).coerceIn(0.3f, 1f)
 
-        // 图案一般不会变，变了才动（解码图片有成本）
+        /*
+         * 图案刷新靠「文件修改时间」判断，不能靠 drawable 类型。
+         * 用户重新挑一张图时，写进去的路径还是同一个文件，
+         * 只拿「是不是 BitmapDrawable」判断会一直为真，于是永远不重载 —— 换图不生效。
+         */
         val path = settings?.floatingBallIconPath.orEmpty()
-        val wantedBitmap = path.isNotBlank() && File(path).exists()
-        if (!wantedBitmap) {
-            ball.scaleType = ImageView.ScaleType.CENTER_INSIDE
-            ball.clipToOutline = false
-            ball.setImageResource(R.drawable.ic_bubble_mic)
-        } else if (ball.drawable !is android.graphics.drawable.BitmapDrawable) {
-            loadCustomIcon(path)
+        val file = if (path.isNotBlank()) File(path) else null
+        val stamp = if (file != null && file.exists()) file.lastModified() else 0L
+
+        if (stamp == 0L) {
+            if (loadedIconStamp != 0L) {
+                ball.scaleType = ImageView.ScaleType.CENTER_INSIDE
+                ball.clipToOutline = false
+                ball.setImageResource(R.drawable.ic_bubble_mic)
+                loadedIconStamp = 0L
+            }
+        } else if (stamp != loadedIconStamp) {
+            if (loadCustomIcon(path)) loadedIconStamp = stamp
         }
 
         clampInto()
@@ -274,6 +308,7 @@ class FloatingBallService : Service() {
         bubble = null
         params = null
         expanded = false
+        loadedIconStamp = 0L
     }
 
     /** 拖动移动；轻点展开 / 收起操作条 */
@@ -485,6 +520,10 @@ class FloatingBallService : Service() {
         const val ACTION_HIDE = "com.dsh.notes.action.HIDE_BALL"
         const val ACTION_REFRESH = "com.dsh.notes.action.REFRESH_BALL"
 
+        /** 拖滑块时的即时预览值：带上就不用等服务从磁盘读 */
+        const val EXTRA_SIZE = "extra_size_dp"
+        const val EXTRA_ALPHA = "extra_alpha"
+
         fun canShow(context: Context): Boolean = Settings.canDrawOverlays(context)
 
         fun show(context: Context) {
@@ -500,11 +539,15 @@ class FloatingBallService : Service() {
 
         /**
          * 设置里改了图案 / 大小 / 透明度之后重建悬浮窗。
-         * 只发一条 REFRESH，服务自己把视图拆了重搭 —— 不重启服务，球不会消失。
+         * 只发一条 REFRESH，服务自己把属性改掉 —— 不重启服务，球不会消失。
+         *
+         * @param sizeDp 拖动时的即时预览值；传 null 则用磁盘上的设置
          */
-        fun refresh(context: Context) {
+        fun refresh(context: Context, sizeDp: Int? = null, alpha: Float? = null) {
             if (!canShow(context)) return
             val intent = Intent(context, FloatingBallService::class.java).setAction(ACTION_REFRESH)
+            if (sizeDp != null) intent.putExtra(EXTRA_SIZE, sizeDp)
+            if (alpha != null) intent.putExtra(EXTRA_ALPHA, alpha)
             runCatching { ContextCompat.startForegroundService(context, intent) }
         }
     }

@@ -87,6 +87,7 @@ import com.dsh.notes.util.WebLinks
 import com.dsh.notes.util.ellipsizeMiddle
 import com.dsh.notes.util.formatSize
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 /**
  * 设置页。
@@ -556,28 +557,68 @@ fun SettingsScreen(
                 if (settings.floatingBallEnabled) {
                     Spacer(Modifier.height(12.dp))
 
+                    /*
+                     * 滑块用本地状态驱动，而不是直接绑 DataStore 里的值。
+                     * 绑设置值的话，每一帧都要「写盘 → 读回 → 重组」，
+                     * 手指已经走了滑块还在追，就是那种不跟手的感觉。
+                     * 这里：拖动只改本地值 + 通知悬浮窗预览，松手才落盘。
+                     */
+                    var sizePreview by remember(settings.floatingBallSizeDp) {
+                        mutableStateOf(settings.floatingBallSizeDp.toFloat())
+                    }
+                    var lastPreviewSize by remember(settings.floatingBallSizeDp) {
+                        mutableStateOf(settings.floatingBallSizeDp)
+                    }
+                    var alphaPreview by remember(settings.floatingBallAlpha) {
+                        mutableStateOf(settings.floatingBallAlpha)
+                    }
+                    var lastPreviewAlpha by remember(settings.floatingBallAlpha) {
+                        mutableStateOf(settings.floatingBallAlpha)
+                    }
+
                     // 大小
                     Text(
-                        text = "大小：${settings.floatingBallSizeDp} dp",
+                        text = "大小：${sizePreview.roundToInt()} dp",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Slider(
-                        value = settings.floatingBallSizeDp.toFloat(),
-                        onValueChange = { viewModel.setFloatingBallSize(it.toInt()) },
+                        value = sizePreview,
+                        onValueChange = { value ->
+                            sizePreview = value
+                            val rounded = value.roundToInt()
+                            if (rounded != lastPreviewSize) {
+                                lastPreviewSize = rounded
+                                viewModel.previewFloatingBall(sizeDp = rounded)
+                            }
+                        },
+                        onValueChangeFinished = {
+                            viewModel.setFloatingBallSize(sizePreview.roundToInt())
+                        },
                         valueRange = 40f..96f,
                         steps = 6
                     )
 
                     // 透明度
                     Text(
-                        text = "不透明度：${(settings.floatingBallAlpha * 100).toInt()}%",
+                        text = "不透明度：${(alphaPreview * 100).roundToInt()}%",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Slider(
-                        value = settings.floatingBallAlpha,
-                        onValueChange = { viewModel.setFloatingBallAlpha(it) },
+                        value = alphaPreview,
+                        onValueChange = { value ->
+                            // 吸附到 5% 一档，避免一像素一条 IPC
+                            val snapped = (value * 20).roundToInt() / 20f
+                            alphaPreview = snapped
+                            if (snapped != lastPreviewAlpha) {
+                                lastPreviewAlpha = snapped
+                                viewModel.previewFloatingBall(alpha = snapped)
+                            }
+                        },
+                        onValueChangeFinished = {
+                            viewModel.setFloatingBallAlpha(alphaPreview)
+                        },
                         valueRange = 0.3f..1f
                     )
 
