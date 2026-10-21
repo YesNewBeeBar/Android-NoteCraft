@@ -573,7 +573,7 @@ fun SettingsScreen(
                         mutableStateOf(settings.floatingBallAlpha)
                     }
                     var lastPreviewAlpha by remember(settings.floatingBallAlpha) {
-                        mutableStateOf(settings.floatingBallAlpha)
+                        mutableStateOf((settings.floatingBallAlpha * 33).roundToInt())
                     }
 
                     // 大小
@@ -585,18 +585,18 @@ fun SettingsScreen(
                     Slider(
                         value = sizePreview,
                         onValueChange = { value ->
+                            // 连续跟手；只有跨过 2dp 才通知一次悬浮窗，避免刷太多 IPC
                             sizePreview = value
-                            val rounded = value.roundToInt()
-                            if (rounded != lastPreviewSize) {
-                                lastPreviewSize = rounded
-                                viewModel.previewFloatingBall(sizeDp = rounded)
+                            val bucket = (value / 2).roundToInt() * 2
+                            if (bucket != lastPreviewSize) {
+                                lastPreviewSize = bucket
+                                viewModel.previewFloatingBall(sizeDp = bucket)
                             }
                         },
                         onValueChangeFinished = {
                             viewModel.setFloatingBallSize(sizePreview.roundToInt())
                         },
-                        valueRange = 40f..96f,
-                        steps = 6
+                        valueRange = 40f..96f
                     )
 
                     // 透明度
@@ -608,12 +608,12 @@ fun SettingsScreen(
                     Slider(
                         value = alphaPreview,
                         onValueChange = { value ->
-                            // 吸附到 5% 一档，避免一像素一条 IPC
-                            val snapped = (value * 20).roundToInt() / 20f
-                            alphaPreview = snapped
-                            if (snapped != lastPreviewAlpha) {
-                                lastPreviewAlpha = snapped
-                                viewModel.previewFloatingBall(alpha = snapped)
+                            alphaPreview = value
+                            // 每 3% 才发一次预览
+                            val bucket = (value * 33).roundToInt()
+                            if (bucket != lastPreviewAlpha) {
+                                lastPreviewAlpha = bucket
+                                viewModel.previewFloatingBall(alpha = bucket / 33f)
                             }
                         },
                         onValueChangeFinished = {

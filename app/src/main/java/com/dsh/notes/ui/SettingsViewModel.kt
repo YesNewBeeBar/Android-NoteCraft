@@ -61,43 +61,34 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
 
     /** 拖动滑块的即时预览：只更新悬浮窗，不写磁盘，所以跟手 */
     fun previewFloatingBall(sizeDp: Int? = null, alpha: Float? = null) {
-        FloatingBallService.refresh(container.context, sizeDp = sizeDp, alpha = alpha)
+        FloatingBallService.preview(container.context, sizeDp = sizeDp, alpha = alpha)
     }
 
     fun setFloatingBallSize(dp: Int) {
         viewModelScope.launch {
             container.settings.setFloatingBallSize(dp)
-            refreshBallIfEnabled(sizeDp = dp)
+            // 视图上早就预览过这个值了，这里落盘即可，不必再重建
+            FloatingBallService.preview(container.context, sizeDp = dp)
         }
     }
 
     fun setFloatingBallAlpha(alpha: Float) {
-        // 吸附到 5% 一档：拖滑块时不会每移动一像素就重建一次悬浮窗
-        val snapped = (alpha * 20).roundToInt() / 20f
+        // 只保留到 1%，不再吸附到 5% —— 吸附会让滑块松手时"跳一下"
+        val rounded = (alpha * 100).roundToInt() / 100f
         viewModelScope.launch {
-            container.settings.setFloatingBallAlpha(snapped)
-            refreshBallIfEnabled(alpha = snapped)
+            container.settings.setFloatingBallAlpha(rounded)
+            FloatingBallService.preview(container.context, alpha = rounded)
         }
     }
 
-    /** 恢复默认：图案、大小、不透明度一起回去 */
+    /** 恢复默认：图案、大小、不透明度一起回去（图案变了要整块重建） */
     fun resetFloatingBall() {
         viewModelScope.launch {
             runCatching { File(container.context.filesDir, FLOATING_ICON_NAME).delete() }
             container.settings.setFloatingBallIconPath("")
             container.settings.setFloatingBallSize(DEFAULT_BALL_SIZE)
             container.settings.setFloatingBallAlpha(DEFAULT_BALL_ALPHA)
-            refreshBallIfEnabled(sizeDp = DEFAULT_BALL_SIZE, alpha = DEFAULT_BALL_ALPHA)
-        }
-    }
-
-    /**
-     * 让悬浮窗按最新设置重建。
-     * 写设置和重建放在同一个协程里，保证顺序：先落盘，再重建，不会读到旧值。
-     */
-    private suspend fun refreshBallIfEnabled(sizeDp: Int? = null, alpha: Float? = null) {
-        if (container.settings.current().floatingBallEnabled) {
-            FloatingBallService.refresh(container.context, sizeDp = sizeDp, alpha = alpha)
+            FloatingBallService.reload(container.context)
         }
     }
 
@@ -111,7 +102,8 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
                 } ?: throw IllegalStateException("读不到这张图")
 
                 container.settings.setFloatingBallIconPath(target.absolutePath)
-                refreshBallIfEnabled()
+                // 图案变了必须整块重建：和手动关开一次等价，确定能刷到新图
+                FloatingBallService.reload(container.context)
             } catch (error: Exception) {
                 _message.value = error.message ?: "设置图案失败"
             }
