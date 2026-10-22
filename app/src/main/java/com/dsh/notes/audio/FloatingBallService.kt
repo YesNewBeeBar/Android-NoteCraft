@@ -51,6 +51,7 @@ class FloatingBallService : Service() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var stateJob: Job? = null
+    private var visibilityJob: Job? = null
 
     private var windowManager: WindowManager? = null
     private var root: LinearLayout? = null
@@ -120,6 +121,7 @@ class FloatingBallService : Service() {
     override fun onDestroy() {
         removeBall()
         stateJob?.cancel()
+        visibilityJob?.cancel()
         scope.cancel()
         super.onDestroy()
     }
@@ -259,6 +261,28 @@ class FloatingBallService : Service() {
         }
 
         observeState()
+        observeAppVisibility()
+    }
+
+    /**
+     * App 在前台就把球藏起来，切出去再显示。
+     *
+     * 用 visibility 而不是拆掉视图：从「切出去」到「看到球」没有延迟，
+     * 也不用反复调度窗口。
+     */
+    private fun observeAppVisibility() {
+        visibilityJob?.cancel()
+        visibilityJob = scope.launch {
+            AppVisibility.foreground.collect { foreground ->
+                val container = root ?: return@collect
+                if (foreground) {
+                    if (expanded) collapse()
+                    container.visibility = View.GONE
+                } else {
+                    container.visibility = View.VISIBLE
+                }
+            }
+        }
     }
 
     /** 只改属性，不重搭视图：拖滑块时球一直在，不会闪 */

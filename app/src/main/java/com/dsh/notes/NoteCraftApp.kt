@@ -1,7 +1,10 @@
 package com.dsh.notes
 
+import android.app.Activity
 import android.app.Application
+import android.os.Bundle
 import com.dsh.notes.ai.AiClients
+import com.dsh.notes.audio.AppVisibility
 import com.dsh.notes.audio.RecordingService
 import com.dsh.notes.data.NoteRepository
 import com.dsh.notes.data.NoteStatus
@@ -108,6 +111,21 @@ class NoteCraftApp : Application() {
         super.onCreate()
         instance = this
         container = AppContainer(this)
+        registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
+            override fun onActivityStarted(activity: Activity) = AppVisibility.onActivityStarted()
+
+            override fun onActivityStopped(activity: Activity) = AppVisibility.onActivityStopped()
+
+            override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
+
+            override fun onActivityResumed(activity: Activity) = Unit
+
+            override fun onActivityPaused(activity: Activity) = Unit
+
+            override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
+
+            override fun onActivityDestroyed(activity: Activity) = Unit
+        })
     }
 
     companion object {

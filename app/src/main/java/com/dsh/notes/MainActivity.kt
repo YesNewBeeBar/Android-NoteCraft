@@ -13,8 +13,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.core.view.WindowCompat
+import com.dsh.notes.audio.FloatingBallService
 import com.dsh.notes.ui.NoteCraftApp
 import com.dsh.notes.ui.NoteCraftViewModelFactory
+import kotlinx.coroutines.launch
 
 /**
  * 唯一的 Activity。
@@ -54,6 +56,28 @@ class MainActivity : ComponentActivity() {
                 sharedAudioUris = uris,
                 onSharedAudioConsumed = { pendingAudioUris.value = emptyList() }
             )
+        }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        // 悬浮球服务可能被系统回收过；只要用户之前开着，就把它补回来
+        restoreFloatingBall()
+    }
+
+    /**
+     * 恢复悬浮球。
+     *
+     * 放在 onStart 里而不是 onCreate：应用被杀后重新打开、从最近任务回来，
+     * 都会走 onStart，保证「之前开过就还在」。真正显示时机由 AppVisibility 决定
+     * （在 App 内隐着，切出去才出现）。
+     */
+    private fun restoreFloatingBall() {
+        container.appScope.launch {
+            val settings = runCatching { container.settings.current() }.getOrNull() ?: return@launch
+            if (settings.floatingBallEnabled) {
+                FloatingBallService.show(this@MainActivity)
+            }
         }
     }
 

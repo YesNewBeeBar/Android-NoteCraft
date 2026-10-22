@@ -144,16 +144,25 @@ class WavAudioRecorder(
         return bytes
     }
 
+    /*
+     * 暂停不碰 AudioRecord。
+     *
+     * 之前这里调 record.stop()，读线程里的阻塞 read() 会返回错误码，
+     * loop 里那条 "ERROR_INVALID_OPERATION 就 break" 直接让线程退出了；
+     * resume() 再 startRecording() 也没人读 —— 采样数不增长，
+     * 表现就是「界面显示正在录音，但时间不动」，实际也没录上。
+     *
+     * 现在只翻 paused 标志：音频一直在采，暂停期间的数据在 loop 里丢掉、
+     * 也不计入 samplesCaptured，所以文件时长和计时都正确。
+     */
     override fun pause() {
         if (!running) return
         paused = true
-        runCatching { record?.stop() }
     }
 
     override fun resume() {
         if (!running) return
         paused = false
-        runCatching { record?.startRecording() }
     }
 
     override fun setMuted(muted: Boolean) {

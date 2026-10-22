@@ -85,6 +85,7 @@ import com.dsh.notes.pipeline.AudioFileState
 import com.dsh.notes.ui.NoteCraftViewModelFactory
 import com.dsh.notes.ui.NoteDetailViewModel
 import com.dsh.notes.ui.Suspect
+import com.dsh.notes.ui.components.KeepScreenOn
 import com.dsh.notes.ui.components.StatusChip
 import com.dsh.notes.ui.components.WaveformView
 import com.dsh.notes.ui.markdown.MarkdownText
@@ -125,12 +126,8 @@ fun NoteDetailScreen(
     val context = LocalContext.current
     val snackbar = remember { SnackbarHostState() }
 
-    // 朗读时别息屏：听长篇时屏幕老黑掉很烦。窗口原生标志，用完即关。
-    val windowView = LocalView.current
-    DisposableEffect(speech.playing) {
-        windowView.keepScreenOn = speech.playing
-        onDispose { windowView.keepScreenOn = false }
-    }
+    // 朗读时别息屏：听长篇时屏幕老黑掉很烦
+    KeepScreenOn(speech.playing)
 
     var editing by remember { mutableStateOf(false) }
     var titleDraft by remember { mutableStateOf("") }

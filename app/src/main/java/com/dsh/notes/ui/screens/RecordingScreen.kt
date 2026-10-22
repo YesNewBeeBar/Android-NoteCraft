@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -70,6 +71,7 @@ import com.dsh.notes.data.ThemeMode
 import com.dsh.notes.ui.NoteCraftViewModelFactory
 import com.dsh.notes.ui.RecordingViewModel
 import com.dsh.notes.ui.components.ActivityBars
+import com.dsh.notes.ui.components.KeepScreenOn
 import com.dsh.notes.ui.components.LevelMeter
 import com.dsh.notes.ui.components.ThemeToggleButton
 import com.dsh.notes.ui.theme.recordColor
@@ -101,13 +103,8 @@ fun RecordingScreen(
     val hasPermission = remember { mutableStateOf(Permissions.hasAudio(context)) }
     var showPermissionDialog by remember { mutableStateOf(false) }
 
-    // 录音期间别让屏幕睡着：盯着实时上屏的人不该被息屏打断。
-    // 用的是窗口原生的 FLAG_KEEP_SCREEN_ON（View.keepScreenOn），不是 WakeLock。
-    val view = LocalView.current
-    DisposableEffect(state.isRecording) {
-        view.keepScreenOn = state.isRecording
-        onDispose { view.keepScreenOn = false }
-    }
+    // 录音期间别让屏幕睡着：盯着实时上屏的人不该被息屏打断
+    KeepScreenOn(state.isRecording)
 
     var lastFinishedNoteId by remember { mutableStateOf(0L) }
 
@@ -588,6 +585,9 @@ private fun LiveCaptionPanel(finalized: String, partial: String) {
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
+                        // targetSdk 35 在 Android 15 上强制 edge-to-edge，
+                        // Dialog 不自己处理 inset，内容会画到导航栏下面 —— 最后一行就看不见了
+                        .safeDrawingPadding()
                         .padding(horizontal = 18.dp, vertical = 12.dp)
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
