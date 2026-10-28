@@ -37,15 +37,12 @@ import java.io.File
 import kotlin.math.abs
 
 /**
- * 悬浮球：在任何界面都能一键开始 / 暂停 / 结束录音。
+ * 悬浮球：在任何界面一键开始 / 暂停 / 结束录音。
  *
- * 全部原生 API：
- *  - 悬浮窗 = WindowManager + TYPE_APPLICATION_OVERLAY（要「显示在其他应用上层」权限）
- *  - 常驻   = 前台服务（否则进程被回收，球就没了）
- *  - 状态   = 直接订阅 RecordingService.state，和 App 内是同一份数据
- *
- * 没用 Compose：悬浮窗挂在 Service 上，没有 Activity 的 Lifecycle / ViewModelStore，
- * 塞 ComposeView 得自己造宿主。这里只有三个按钮，原生 View 更省事也更稳。
+ * 球和操作条是**两个独立的悬浮窗**。
+ * 早先把它们塞进同一个窗口里重排子视图，展开时窗口宽度变化会让球看起来跳一下，
+ * 左边放不下时还得整体挪窗口 —— 又抽又容易误触。拆成两个窗口之后：
+ * 球的位置只由它自己那个窗口决定，展开只是「在旁边多挂一个窗口」，球一点不动。
  */
 class FloatingBallService : Service() {
 
@@ -54,18 +51,24 @@ class FloatingBallService : Service() {
     private var visibilityJob: Job? = null
 
     private var windowManager: WindowManager? = null
-    private var root: LinearLayout? = null
+
+    private var ball: ImageView? = null
+    private var ballParams: WindowManager.LayoutParams? = null
+
     private var panel: LinearLayout? = null
-    private var bubble: ImageView? = null
+    private var panelParams: WindowManager.LayoutParams? = null
+
     private var btnPlay: ImageButton? = null
     private var btnPause: ImageButton? = null
     private var btnStop: ImageButton? = null
-    private var params: WindowManager.LayoutParams? = null
 
-    private var panelWidth = 0
     private var expanded = false
 
-    /** 当前已加载的自定义图案的「文件修改时间」；0 表示当前是内置麦克风图标 */
+    /** 当前已经应用到视图上的值，预览时以它为基准，避免每次去磁盘读设置 */
+    private var appliedSizeDp = 56
+    private var appliedAlpha = 0.9f
+
+    /** 自定义图案的文件修改时间；0 表示当前是内置麦克风图标 */
     private var loadedIconStamp = 0L
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -88,27 +91,35 @@ class FloatingBallService : Service() {
                 return START_NOT_STICKY
             }
 
-            // 改大小 / 透明度 / 图案后走这里。
-            // 千万别用「先 stopSelf 再 start」—— stopSelf() 不带 startId 是无条件停止，
-            // 会和紧随其后的 start 打架，表现就是悬浮球直接消失、要关开一次才回来。
-            // 已经挂上了就原地改属性，连一帧都不会闪。
             ACTION_REFRESH -> {
-                // 拖滑块时把目标值直接带过来，服务就不必等磁盘写完再读，跟手得多
-                val sizeOverride = command.getIntExtra(EXTRA_SIZE, -1).takeIf { it > 0 }
-                val alphaOverride = if (command.hasExtra(EXTRA_ALPHA)) {
-                    command.getFloatExtra(EXTRA_ALPHA, -1f).takeIf { it >= 0f }
-                } else {
-                    null
-                }
                 scope.launch {
                     val base = runCatching {
                         (application as NoteCraftApp).container.settings.current()
                     }.getOrNull() ?: AppSettings()
-                    val effective = base.copy(
-                        floatingBallSizeDp = sizeOverride ?: base.floatingBallSizeDp,
-                        floatingBallAlpha = alphaOverride ?: base.floatingBallAlpha
-                    )
-                    if (root == null) buildBall(effective) else applySettingsInPlace(effective)
+                    val size = command.getIntExtra(EXTRA_SIZE, -1).takeIf { it > 0 }
+                        ?: base.floatingBallSizeDp
+                    val alpha = if (command.hasExtra(EXTRA_ALPHA)) {
+                        command.getFloatExtra(EXTRA_ALPHA, -1f).takeIf { it >= 0f }
+                    } else {
+                        null
+                    } ?: base.floatingBallAlpha
+
+                    if (ball == null) {
+                        buildBall(base)
+                    } else {
+                        applyInPlace(size, alpha)
+                    }
+                    // 图案可能变了：只有这次带了新路径才重载，不做时间戳推断
+                    val path = base.floatingBallIconPath
+                    if (ball != null && (path.isBlank() || File(path).lastModified() != loadedIconStamp)) {
+                        if (!loadCustomIcon(path)) {
+                            ball?.scaleType = ImageView.ScaleType.CENTER_INSIDE
+                            ball?.clipToOutline = false
+                            ball?.setImageResource(R.drawable.ic_bubble_mic)
+                            loadedIconStamp = 0L
+                        }
+                    }
+                    if (expanded) expand()
                 }
                 return START_STICKY
             }
@@ -119,7 +130,7 @@ class FloatingBallService : Service() {
     }
 
     override fun onDestroy() {
-        removeBall()
+        removeAll()
         stateJob?.cancel()
         visibilityJob?.cancel()
         scope.cancel()
@@ -129,9 +140,8 @@ class FloatingBallService : Service() {
     // ---------------------------------------------------------------- 悬浮窗
 
     private fun showBall() {
-        if (root != null) return
+        if (ball != null) return
         if (!canDrawOverlays()) {
-            // 没权限就别硬挂，设置页会引导去授权
             stopSelf()
             return
         }
@@ -144,30 +154,75 @@ class FloatingBallService : Service() {
     }
 
     private fun buildBall(settings: AppSettings?) {
-        if (root != null) return
-
-        val sizePx = dp((settings?.floatingBallSizeDp ?: 56).coerceIn(40, 96))
-        val alpha = (settings?.floatingBallAlpha ?: 0.9f).coerceIn(0.3f, 1f)
-        val iconPath = settings?.floatingBallIconPath.orEmpty()
+        if (ball != null) return
 
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
 
-        // [操作条][球]：展开时操作条出现在球的左边
-        val container = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
+        appliedSizeDp = (settings?.floatingBallSizeDp ?: 56).coerceIn(40, 96)
+        appliedAlpha = (settings?.floatingBallAlpha ?: 0.9f).coerceIn(0.3f, 1f)
+        val iconPath = settings?.floatingBallIconPath.orEmpty()
+
+        val sizePx = dp(appliedSizeDp)
+        val view = ImageView(this).apply {
+            setBackgroundResource(R.drawable.bg_bubble)
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            contentDescription = "NoteCraft 悬浮球"
+            setImageResource(R.drawable.ic_bubble_mic)
+            alpha = appliedAlpha
         }
 
-        val actionPanel = LinearLayout(this).apply {
+        val layoutParams = WindowManager.LayoutParams(
+            sizePx,
+            sizePx,
+            overlayType(),
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            // 默认放左侧：展开时操作条往右伸，球不用挪
+            x = dp(12)
+            y = resources.displayMetrics.heightPixels / 3
+        }
+
+        attachDrag(view)
+
+        val added = runCatching {
+            windowManager?.addView(view, layoutParams)
+            true
+        }.getOrDefault(false)
+
+        if (!added) {
+            stopSelf()
+            return
+        }
+
+        ball = view
+        ballParams = layoutParams
+
+        if (iconPath.isNotBlank() && loadCustomIcon(iconPath)) {
+            loadedIconStamp = File(iconPath).lastModified()
+        } else {
+            view.setImageResource(R.drawable.ic_bubble_mic)
+            loadedIconStamp = 0L
+        }
+
+        observeState()
+        observeAppVisibility()
+    }
+
+    /** 操作条窗口：只在展开时挂上，位置由球的位置算 */
+    private fun buildPanel(): LinearLayout {
+        val actionSize = dp(ACTION_SIZE_DP)
+        val margin = dp(ACTION_MARGIN_DP)
+
+        val panelView = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setBackgroundResource(R.drawable.bg_bubble_panel)
-            val pad = dp(6)
+            val pad = dp(PANEL_PAD_DP)
             setPadding(pad, pad, pad, pad)
-            visibility = View.GONE
         }
 
-        val actionSize = dp(40)
         val play = actionButton(R.drawable.ic_bubble_play, "开始或继续", actionSize) {
             if (RecordingService.state.value.phase == RecorderPhase.PAUSED) {
                 RecordingService.resume(this)
@@ -188,8 +243,7 @@ class FloatingBallService : Service() {
         }
 
         listOf(play, pause, stop).forEach { button ->
-            val margin = dp(4)
-            actionPanel.addView(
+            panelView.addView(
                 button,
                 LinearLayout.LayoutParams(actionSize, actionSize).apply {
                     setMargins(margin, 0, margin, 0)
@@ -197,27 +251,41 @@ class FloatingBallService : Service() {
             )
         }
 
-        val ball = ImageView(this).apply {
-            setBackgroundResource(R.drawable.bg_bubble)
-            scaleType = ImageView.ScaleType.CENTER_INSIDE
-            contentDescription = "NoteCraft 悬浮球"
-            setImageResource(R.drawable.ic_bubble_mic)
-        }
+        btnPlay = play
+        btnPause = pause
+        btnStop = stop
+        applyStateToButtons(RecordingService.state.value)
+        return panelView
+    }
 
-        // 默认放屏幕左侧：这样展开时操作条往右伸，球本身完全不用动
-        container.addView(
-            ball,
-            LinearLayout.LayoutParams(sizePx, sizePx)
-        )
-        container.addView(
-            actionPanel,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { marginStart = dp(6) }
-        )
+    private fun expand() {
+        val ballView = ball ?: return
+        val bp = ballParams ?: return
+        val wm = windowManager ?: return
 
-        val layoutParams = WindowManager.LayoutParams(
+        val panelView = panel ?: buildPanel().also { panel = it }
+        val panelW = panelWidthPx()
+        val panelH = panelHeightPx()
+
+        val metrics = resources.displayMetrics
+        val ballW = ballView.width.coerceAtLeast(dp(40))
+        val ballH = ballView.height.coerceAtLeast(dp(40))
+
+        // 右边放得下就放右边，否则放左边 —— 无论哪种，球本身都不动
+        val roomRight = metrics.widthPixels - (bp.x + ballW)
+        val onRight = roomRight >= panelW + dp(6)
+
+        val x = if (onRight) {
+            bp.x + ballW + dp(6)
+        } else {
+            bp.x - panelW - dp(6)
+        }.coerceIn(0, (metrics.widthPixels - panelW).coerceAtLeast(0))
+
+        val y = (bp.y + ballH / 2 - panelH / 2)
+            .coerceIn(0, (metrics.heightPixels - panelH).coerceAtLeast(0))
+
+        panelView.alpha = appliedAlpha
+        val lp = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             overlayType(),
@@ -225,119 +293,40 @@ class FloatingBallService : Service() {
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            val metrics = resources.displayMetrics
-            x = dp(12)
-            y = metrics.heightPixels / 3
+            this.x = x
+            this.y = y
         }
 
-        container.alpha = alpha
-        attachDrag(ball, container)
-
-        val added = runCatching {
-            windowManager?.addView(container, layoutParams)
-            true
-        }.getOrDefault(false)
-
-        if (!added) {
-            stopSelf()
-            return
-        }
-
-        root = container
-        panel = actionPanel
-        bubble = ball
-        params = layoutParams
-        btnPlay = play
-        btnPause = pause
-        btnStop = stop
-
-        // 自定义图案要等 bubble 赋值之后才能设（loadCustomIcon 读的是这个字段）
-        val iconFile = if (iconPath.isNotBlank()) File(iconPath) else null
-        val stamp = if (iconFile != null && iconFile.exists()) iconFile.lastModified() else 0L
-        if (stamp == 0L || !loadCustomIcon(iconPath)) {
-            ball.setImageResource(R.drawable.ic_bubble_mic)
-            loadedIconStamp = 0L
+        if (panelView.parent == null) {
+            runCatching { wm.addView(panelView, lp) }
+            panelParams = lp
         } else {
-            loadedIconStamp = stamp
+            runCatching { wm.updateViewLayout(panelView, lp) }
+            panelParams = lp
         }
-
-        observeState()
-        observeAppVisibility()
+        expanded = true
     }
 
-    /**
-     * App 在前台就把球藏起来，切出去再显示。
-     *
-     * 用 visibility 而不是拆掉视图：从「切出去」到「看到球」没有延迟，
-     * 也不用反复调度窗口。
-     */
-    private fun observeAppVisibility() {
-        visibilityJob?.cancel()
-        visibilityJob = scope.launch {
-            AppVisibility.foreground.collect { foreground ->
-                val container = root ?: return@collect
-                if (foreground) {
-                    if (expanded) collapse()
-                    container.visibility = View.GONE
-                } else {
-                    container.visibility = View.VISIBLE
-                }
-            }
+    private fun collapse() {
+        val panelView = panel ?: return
+        if (panelView.parent != null) {
+            runCatching { windowManager?.removeView(panelView) }
         }
-    }
-
-    /** 只改属性，不重搭视图：拖滑块时球一直在，不会闪 */
-    private fun applySettingsInPlace(settings: AppSettings?) {
-        val container = root ?: return
-        val ball = bubble ?: return
-
-        val sizePx = dp((settings?.floatingBallSizeDp ?: 56).coerceIn(40, 96))
-        (ball.layoutParams as? LinearLayout.LayoutParams)?.let { lp ->
-            if (lp.width != sizePx || lp.height != sizePx) {
-                lp.width = sizePx
-                lp.height = sizePx
-                ball.layoutParams = lp
-            }
-        }
-
-        container.alpha = (settings?.floatingBallAlpha ?: 0.9f).coerceIn(0.3f, 1f)
-
-        /*
-         * 图案刷新靠「文件修改时间」判断，不能靠 drawable 类型。
-         * 用户重新挑一张图时，写进去的路径还是同一个文件，
-         * 只拿「是不是 BitmapDrawable」判断会一直为真，于是永远不重载 —— 换图不生效。
-         */
-        val path = settings?.floatingBallIconPath.orEmpty()
-        val file = if (path.isNotBlank()) File(path) else null
-        val stamp = if (file != null && file.exists()) file.lastModified() else 0L
-
-        if (stamp == 0L) {
-            if (loadedIconStamp != 0L) {
-                ball.scaleType = ImageView.ScaleType.CENTER_INSIDE
-                ball.clipToOutline = false
-                ball.setImageResource(R.drawable.ic_bubble_mic)
-                loadedIconStamp = 0L
-            }
-        } else if (stamp != loadedIconStamp) {
-            if (loadCustomIcon(path)) loadedIconStamp = stamp
-        }
-
-        clampInto()
-        params?.let { runCatching { windowManager?.updateViewLayout(container, it) } }
-    }
-
-    private fun removeBall() {
-        root?.let { view -> runCatching { windowManager?.removeView(view) } }
-        root = null
-        panel = null
-        bubble = null
-        params = null
         expanded = false
+    }
+
+    private fun removeAll() {
+        collapse()
+        ball?.let { view -> runCatching { windowManager?.removeView(view) } }
+        ball = null
+        ballParams = null
+        panel = null
+        panelParams = null
         loadedIconStamp = 0L
     }
 
-    /** 拖动移动；轻点展开 / 收起操作条 */
-    private fun attachDrag(handle: View, windowView: View) {
+    /** 拖动移动；轻点展开 / 收起操作条。只拖球那个窗口，操作条不会被拖着走 */
+    private fun attachDrag(handle: View) {
         val slop = dp(6).toFloat()
         var startRawX = 0f
         var startRawY = 0f
@@ -346,7 +335,7 @@ class FloatingBallService : Service() {
         var moved = false
 
         handle.setOnTouchListener { _, event ->
-            val current = params ?: return@setOnTouchListener false
+            val current = ballParams ?: return@setOnTouchListener false
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
                     startRawX = event.rawX
@@ -362,19 +351,22 @@ class FloatingBallService : Service() {
                     val dy = event.rawY - startRawY
                     if (!moved && (abs(dx) > slop || abs(dy) > slop)) {
                         moved = true
+                        // 一开始拖就收起操作条，避免一边拖一边挂着一个窗口
                         if (expanded) collapse()
                     }
                     if (moved) {
                         current.x = startX + dx.toInt()
                         current.y = startY + dy.toInt()
-                        clampInto()
-                        runCatching { windowManager?.updateViewLayout(windowView, current) }
+                        clampBall()
+                        runCatching { ball?.let { windowManager?.updateViewLayout(it, current) } }
                     }
                     true
                 }
 
                 MotionEvent.ACTION_UP -> {
-                    if (!moved) togglePanel()
+                    if (!moved) {
+                        if (expanded) collapse() else expand()
+                    }
                     true
                 }
 
@@ -383,117 +375,84 @@ class FloatingBallService : Service() {
         }
     }
 
-    private fun togglePanel() {
-        if (expanded) collapse() else expand()
-    }
-
-    private fun expand() {
-        val actionPanel = panel ?: return
-        val current = params ?: return
-        actionPanel.visibility = View.VISIBLE
-        expanded = true
-
-        actionPanel.post {
-            panelWidth = actionPanel.width
-            val metrics = resources.displayMetrics
-            val ballWidth = bubble?.width ?: 0
-
-            /*
-             * 球的位置一点都不能动。
-             *
-             * 默认球在最左边、操作条往右伸，所以最常见的情况本来就不用挪。
-             * 只有用户把球拖到屏幕右侧、右边放不下时才把操作条翻到左边去 ——
-             * 翻的是布局顺序，不是窗口坐标，球依然一动不动。
-             */
-            val roomRight = metrics.widthPixels - (current.x + ballWidth)
-            val panelOnRight = roomRight >= panelWidth
-
-            root?.let { container ->
-                container.removeAllViews()
-                val ballView = bubble ?: return@let
-                val ballLp = LinearLayout.LayoutParams(
-                    ballView.width.coerceAtLeast(dp(40)),
-                    ballView.height.coerceAtLeast(dp(40))
-                )
-                val panelLp = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                )
-                if (panelOnRight) {
-                    panelLp.marginStart = dp(6)
-                    container.addView(ballView, ballLp)
-                    container.addView(actionPanel, panelLp)
-                } else {
-                    panelLp.marginEnd = dp(6)
-                    container.addView(actionPanel, panelLp)
-                    container.addView(ballView, ballLp)
-                }
-            }
-            runCatching { root?.let { windowManager?.updateViewLayout(it, current) } }
-        }
-    }
-
-    private fun collapse() {
-        val actionPanel = panel ?: return
-        val current = params ?: return
-        actionPanel.visibility = View.GONE
-        expanded = false
-        // 收起时顺序无所谓，统一回到「球在左」，下次展开从最常见的情况开始
-        runCatching { root?.let { windowManager?.updateViewLayout(it, current) } }
-    }
-
-    private fun clampInto() {
-        val current = params ?: return
+    private fun clampBall() {
+        val current = ballParams ?: return
         val metrics = resources.displayMetrics
-        val width = root?.width ?: 0
-        if (current.x < 0) current.x = 0
-        if (current.x + width > metrics.widthPixels) {
-            current.x = (metrics.widthPixels - width).coerceAtLeast(0)
-        }
-        if (current.y < 0) current.y = 0
-        if (current.y > metrics.heightPixels - dp(48)) {
-            current.y = metrics.heightPixels - dp(48)
-        }
+        val size = ball?.width ?: dp(appliedSizeDp)
+        current.x = current.x.coerceIn(0, (metrics.widthPixels - size).coerceAtLeast(0))
+        current.y = current.y.coerceIn(0, (metrics.heightPixels - size).coerceAtLeast(0))
     }
 
-    /** 订阅录音状态，让三个按钮的可用状态跟着变 */
+    private fun applyInPlace(sizeDp: Int, alpha: Float) {
+        val ballView = ball ?: return
+        appliedSizeDp = sizeDp.coerceIn(40, 96)
+        appliedAlpha = alpha.coerceIn(0.3f, 1f)
+
+        val sizePx = dp(appliedSizeDp)
+        ballParams?.let { lp ->
+            if (lp.width != sizePx || lp.height != sizePx) {
+                lp.width = sizePx
+                lp.height = sizePx
+                runCatching { windowManager?.updateViewLayout(ballView, lp) }
+            }
+        }
+        ballView.alpha = appliedAlpha
+        panel?.alpha = appliedAlpha
+    }
+
     private fun observeState() {
         stateJob?.cancel()
         stateJob = scope.launch {
             RecordingService.state.collect { state ->
-                val idle = state.phase == RecorderPhase.IDLE || state.phase == RecorderPhase.PROCESSING
-                val recording = state.phase == RecorderPhase.RECORDING
-                val paused = state.phase == RecorderPhase.PAUSED
-
-                // 不可用的按钮压暗但保留位置，避免图标跳来跳去
-                btnPlay?.apply {
-                    isEnabled = idle || paused
-                    alpha = if (isEnabled) 1f else 0.35f
-                }
-                btnPause?.apply {
-                    isEnabled = recording
-                    alpha = if (isEnabled) 1f else 0.35f
-                }
-                btnStop?.apply {
-                    isEnabled = recording || paused
-                    alpha = if (isEnabled) 1f else 0.35f
-                }
-
-                // 录音中把默认皮肤染红。用相册自定义图案的不染色 —— 照片没法整体染
+                applyStateToButtons(state)
+                // 录音中把默认皮肤染红。用相册自定义图案的不染色
                 if (loadedIconStamp == 0L) {
-                    bubble?.setBackgroundResource(
-                        if (recording) R.drawable.bg_bubble_recording else R.drawable.bg_bubble
+                    ball?.setBackgroundResource(
+                        if (state.phase == RecorderPhase.RECORDING) {
+                            R.drawable.bg_bubble_recording
+                        } else {
+                            R.drawable.bg_bubble
+                        }
                     )
                 }
             }
         }
     }
 
+    private fun applyStateToButtons(state: RecorderState) {
+        val idle = state.phase == RecorderPhase.IDLE || state.phase == RecorderPhase.PROCESSING
+        val recording = state.phase == RecorderPhase.RECORDING
+        val paused = state.phase == RecorderPhase.PAUSED
+
+        btnPlay?.apply {
+            isEnabled = idle || paused
+            alpha = if (isEnabled) 1f else 0.35f
+        }
+        btnPause?.apply {
+            isEnabled = recording
+            alpha = if (isEnabled) 1f else 0.35f
+        }
+        btnStop?.apply {
+            isEnabled = recording || paused
+            alpha = if (isEnabled) 1f else 0.35f
+        }
+    }
+
+    /** App 在前台就把球藏起来，切出去再显示 */
+    private fun observeAppVisibility() {
+        visibilityJob?.cancel()
+        visibilityJob = scope.launch {
+            AppVisibility.foreground.collect { foreground ->
+                if (foreground && expanded) collapse()
+                ball?.visibility = if (foreground) View.GONE else View.VISIBLE
+            }
+        }
+    }
+
     private fun loadCustomIcon(path: String): Boolean {
-        if (path.isBlank()) return false
-        if (!File(path).exists()) return false
-        val bitmap = runCatching { BitmapFactory.decodeFile(path) }.getOrNull() ?: return false
-        val view = bubble ?: return false
+        if (path.isBlank() || !File(path).exists()) return false
+        val bitmap = decodeScaled(path, dp(appliedSizeDp).coerceAtLeast(48)) ?: return false
+        val view = ball ?: return false
         view.setImageBitmap(bitmap)
         view.scaleType = ImageView.ScaleType.CENTER_CROP
         view.clipToOutline = true
@@ -503,6 +462,20 @@ class FloatingBallService : Service() {
             }
         }
         return true
+    }
+
+    private fun decodeScaled(path: String, targetPx: Int): android.graphics.Bitmap? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        runCatching { BitmapFactory.decodeFile(path, bounds) }
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+        var sample = 1
+        while (bounds.outWidth / (sample * 2) >= targetPx &&
+            bounds.outHeight / (sample * 2) >= targetPx
+        ) {
+            sample *= 2
+        }
+        val options = BitmapFactory.Options().apply { inSampleSize = sample }
+        return runCatching { BitmapFactory.decodeFile(path, options) }.getOrNull()
     }
 
     private fun actionButton(
@@ -566,6 +539,12 @@ class FloatingBallService : Service() {
         resources.displayMetrics
     ).toInt()
 
+    private fun panelWidthPx(): Int =
+        dp(3 * ACTION_SIZE_DP + 3 * 2 * ACTION_MARGIN_DP + 2 * PANEL_PAD_DP)
+
+    private fun panelHeightPx(): Int =
+        dp(ACTION_SIZE_DP + 2 * PANEL_PAD_DP)
+
     private fun overlayType(): Int = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
         WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
     } else {
@@ -579,11 +558,13 @@ class FloatingBallService : Service() {
         private const val CHANNEL_ID = "notecraft_floating_ball"
         private const val NOTIFICATION_ID = 4102
 
+        private const val ACTION_SIZE_DP = 44
+        private const val ACTION_MARGIN_DP = 4
+        private const val PANEL_PAD_DP = 6
+
         const val ACTION_SHOW = "com.dsh.notes.action.SHOW_BALL"
         const val ACTION_HIDE = "com.dsh.notes.action.HIDE_BALL"
         const val ACTION_REFRESH = "com.dsh.notes.action.REFRESH_BALL"
-
-        /** 拖滑块时的即时预览值：带上就不用等服务从磁盘读 */
         const val EXTRA_SIZE = "extra_size_dp"
         const val EXTRA_ALPHA = "extra_alpha"
 
@@ -600,12 +581,6 @@ class FloatingBallService : Service() {
             runCatching { context.startService(intent) }
         }
 
-        /**
-         * 设置里改了图案 / 大小 / 透明度之后重建悬浮窗。
-         * 只发一条 REFRESH，服务自己把属性改掉 —— 不重启服务，球不会消失。
-         *
-         * @param sizeDp 拖动时的即时预览值；传 null 则用磁盘上的设置
-         */
         fun refresh(context: Context, sizeDp: Int? = null, alpha: Float? = null) {
             if (!canShow(context)) return
             val intent = Intent(context, FloatingBallService::class.java).setAction(ACTION_REFRESH)

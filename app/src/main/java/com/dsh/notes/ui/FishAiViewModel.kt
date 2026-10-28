@@ -25,6 +25,11 @@ data class FishReference(
 ) {
     val isEmpty: Boolean get() = noteIds.isEmpty() && folderIds.isEmpty()
     val count: Int get() = noteIds.size + folderIds.size
+
+    companion object {
+        /** 「未分类」不是真文件夹，用这个哨兵 id 表示 */
+        const val UNFILED_ID = -1L
+    }
 }
 
 /**
@@ -45,6 +50,38 @@ class FishAiViewModel(private val container: AppContainer) : ViewModel() {
 
     val folders: StateFlow<List<Folder>> = container.repository.observeFolders()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** 历史对话，最近的在前 */
+    val sessions: StateFlow<List<ChatSession>> = chatDao.observeSessions()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** 打开某段历史对话 */
+    fun openSession(id: Long) {
+        if (_sending.value) return
+        viewModelScope.launch {
+            sessionId = id
+            _messages.value = chatDao.messages(id)
+            _streaming.value = null
+            _error.value = null
+        }
+    }
+
+    fun deleteSession(id: Long) {
+        viewModelScope.launch {
+            chatDao.deleteMessages(id)
+            chatDao.deleteSession(id)
+            if (id == sessionId) {
+                val next = chatDao.latestSession()
+                if (next != null) {
+                    sessionId = next.id
+                    _messages.value = chatDao.messages(next.id)
+                } else {
+                    sessionId = chatDao.insertSession(ChatSession())
+                    _messages.value = emptyList()
+                }
+            }
+        }
+    }
 
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
 
@@ -90,7 +127,7 @@ class FishAiViewModel(private val container: AppContainer) : ViewModel() {
         _error.value = null
     }
 
-    /** 开一段新对话；旧对话留在库里 */
+    /** 开一段新对话；旧对话留在库里，可以从历史里翻回来 */
     fun newSession() {
         if (_sending.value) return
         viewModelScope.launch {
@@ -98,6 +135,8 @@ class FishAiViewModel(private val container: AppContainer) : ViewModel() {
             _messages.value = emptyList()
             _streaming.value = null
             _error.value = null
+            // 新对话不该继承上一次的参考范围
+            _reference.value = FishReference()
         }
     }
 
@@ -207,7 +246,8 @@ class FishAiViewModel(private val container: AppContainer) : ViewModel() {
 
         val picked = all.filter { note ->
             note.id in selection.noteIds ||
-                (note.folderId != null && note.folderId in selection.folderIds)
+                (note.folderId != null && note.folderId in selection.folderIds) ||
+                (note.folderId == null && FishReference.UNFILED_ID in selection.folderIds)
         }
         if (picked.isEmpty()) return ""
 

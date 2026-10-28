@@ -1,7 +1,9 @@
 package com.dsh.notes.ui.screens
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,8 +23,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddComment
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.AssistChip
@@ -52,6 +57,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -63,11 +69,13 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dsh.notes.R
 import com.dsh.notes.data.ChatMessage
+import com.dsh.notes.data.ChatSession
 import com.dsh.notes.data.Folder
 import com.dsh.notes.data.Note
 import com.dsh.notes.ui.FishAiViewModel
 import com.dsh.notes.ui.FishReference
 import com.dsh.notes.ui.markdown.MarkdownText
+import com.dsh.notes.util.formatDateTime
 import com.dsh.notes.util.openWebSearch
 
 /**
@@ -90,6 +98,7 @@ fun FishAiScreen(
     val error by viewModel.error.collectAsStateWithLifecycle()
     val allNotes by viewModel.allNotes.collectAsStateWithLifecycle()
     val folders by viewModel.folders.collectAsStateWithLifecycle()
+    val sessions by viewModel.sessions.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
     val snackbar = remember { SnackbarHostState() }
@@ -97,6 +106,7 @@ fun FishAiScreen(
 
     var input by remember { mutableStateOf("") }
     var showReference by remember { mutableStateOf(false) }
+    var showHistory by remember { mutableStateOf(false) }
 
     LaunchedEffect(error) {
         error?.let {
@@ -105,10 +115,25 @@ fun FishAiScreen(
         }
     }
 
-    // 新消息 / 流式增量都跟着滚到底
+    /*
+     * 像实时上屏那样「贴着底」。
+     *
+     * 之前用的是 animateScrollToItem(最后一项)，那是把最后一项的**顶部**对到屏幕顶部，
+     * 流式输出时气泡越来越长，于是内容一直往上顶、底部永远看不全。
+     * 现在滚到「最后一项 + 足够大的偏移」，等价于贴住列表底部；
+     * 而且只有用户本来就贴着底时才跟随，他往上翻历史时不会被拽回来。
+     */
+    var followTail by remember { mutableStateOf(true) }
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.isScrollInProgress }.collect { scrolling ->
+            if (scrolling) followTail = !listState.canScrollForward
+        }
+    }
     LaunchedEffect(messages.size, streaming?.length) {
+        if (!followTail) return@LaunchedEffect
         val count = messages.size + if (streaming != null) 1 else 0
-        if (count > 0) runCatching { listState.animateScrollToItem(count - 1) }
+        // 用一个足够大的偏移把最后一项滚到"完全可见"，等价于贴住列表底部
+        if (count > 0) runCatching { listState.scrollToItem(count - 1, 100_000) }
     }
 
     val fishName = settings.fishName
@@ -124,6 +149,9 @@ fun FishAiScreen(
                 },
                 title = { Text(fishName) },
                 actions = {
+                    IconButton(onClick = { showHistory = true }, enabled = !sending) {
+                        Icon(Icons.Default.History, contentDescription = "历史对话")
+                    }
                     IconButton(onClick = { viewModel.newSession() }, enabled = !sending) {
                         Icon(Icons.Default.AddComment, contentDescription = "新对话")
                     }
@@ -192,6 +220,92 @@ fun FishAiScreen(
                 }
             )
         }
+    }
+
+    if (showHistory) {
+        val historySheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ModalBottomSheet(
+            onDismissRequest = { showHistory = false },
+            sheetState = historySheetState
+        ) {
+            HistorySheet(
+                sessions = sessions,
+                onOpen = { id ->
+                    viewModel.openSession(id)
+                    showHistory = false
+                },
+                onDelete = { id -> viewModel.deleteSession(id) },
+                onNew = {
+                    viewModel.newSession()
+                    showHistory = false
+                }
+            )
+        }
+    }
+}
+
+/** 历史对话列表 */
+@Composable
+private fun HistorySheet(
+    sessions: List<ChatSession>,
+    onOpen: (Long) -> Unit,
+    onDelete: (Long) -> Unit,
+    onNew: () -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "历史对话",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.weight(1f)
+            )
+            TextButton(onClick = onNew) { Text("新对话") }
+        }
+
+        if (sessions.isEmpty()) {
+            Text(
+                text = "还没有历史对话。",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(20.dp)
+            )
+        } else {
+            LazyColumn(modifier = Modifier.weight(1f, fill = false)) {
+                items(items = sessions, key = { it.id }) { session ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onOpen(session.id) }
+                            .padding(start = 20.dp, end = 8.dp, top = 10.dp, bottom = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = session.title,
+                                style = MaterialTheme.typography.bodyLarge,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = formatDateTime(session.updatedAt),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        IconButton(onClick = { onDelete(session.id) }) {
+                            Icon(Icons.Default.Delete, contentDescription = "删除这段对话")
+                        }
+                    }
+                    HorizontalDivider()
+                }
+            }
+        }
+        Spacer(Modifier.height(16.dp))
     }
 }
 
@@ -404,7 +518,13 @@ private fun InputBar(
     }
 }
 
-/** 参考范围选择：分类 + 笔记，两类可以混选 */
+/**
+ * 参考范围选择。
+ *
+ * 第一层直接列分类（没有分类的笔记归到「未分类」），不用一路往下滑；
+ * 单点打勾，双击（或点右边的箭头）进分类看具体笔记。
+ */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ReferencePicker(
     notes: List<Note>,
@@ -414,6 +534,11 @@ private fun ReferencePicker(
 ) {
     var noteIds by remember { mutableStateOf(current.noteIds) }
     var folderIds by remember { mutableStateOf(current.folderIds) }
+    var openedFolder by remember { mutableStateOf<Long?>(null) }
+
+    val openedName = openedFolder?.let { id ->
+        if (id == FishReference.UNFILED_ID) "未分类" else folders.firstOrNull { it.id == id }?.name ?: "分类"
+    }
 
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
@@ -422,8 +547,13 @@ private fun ReferencePicker(
                 .padding(horizontal = 20.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            if (openedFolder != null) {
+                IconButton(onClick = { openedFolder = null }) {
+                    Icon(Icons.Default.ArrowBack, contentDescription = "返回分类")
+                }
+            }
             Text(
-                text = "参考范围",
+                text = openedName ?: "参考范围",
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.weight(1f)
             )
@@ -433,46 +563,64 @@ private fun ReferencePicker(
             }) { Text("清空") }
         }
         Text(
-            text = "不选任何项时，默认参考全部笔记（只发摘要，更省长度）。" +
-                "勾选后只发这些笔记整理后的正文。",
+            text = if (openedFolder == null) {
+                "单击打勾，双击（或点右侧箭头）查看分类里的笔记。不勾选时默认参考全部笔记。"
+            } else {
+                "勾选这个分类里的具体笔记。"
+            },
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
         )
 
-        LazyColumn(modifier = Modifier.weight(1f, fill = false)) {
-            if (folders.isNotEmpty()) {
-                item { SectionTitle("按分类") }
-                items(items = folders, key = { "f${it.id}" }) { folder ->
-                    val count = notes.count { it.folderId == folder.id }
-                    PickRow(
-                        label = folder.name,
-                        hint = "$count 篇",
-                        checked = folder.id in folderIds,
-                        onToggle = {
-                            folderIds = if (folder.id in folderIds) {
-                                folderIds - folder.id
-                            } else {
-                                folderIds + folder.id
-                            }
-                        }
+        val folderId = openedFolder
+        if (folderId == null) {
+            val entries = buildList {
+                folders.forEach { folder ->
+                    add(Triple(folder.id, folder.name, notes.count { it.folderId == folder.id }))
+                }
+                add(
+                    Triple(
+                        FishReference.UNFILED_ID,
+                        "未分类",
+                        notes.count { it.folderId == null }
+                    )
+                )
+            }
+            LazyColumn(modifier = Modifier.weight(1f, fill = false)) {
+                items(items = entries, key = { it.first }) { entry ->
+                    FolderPickRow(
+                        name = entry.second,
+                        count = entry.third,
+                        checked = entry.first in folderIds,
+                        onToggle = { folderIds = toggle(folderIds, entry.first) },
+                        onOpen = { openedFolder = entry.first }
                     )
                 }
             }
-            item { SectionTitle("按笔记") }
-            items(items = notes, key = { "n${it.id}" }) { note ->
-                PickRow(
-                    label = note.title.ifBlank { "未命名笔记" },
-                    hint = if (note.folderId != null) null else "未分类",
-                    checked = note.id in noteIds,
-                    onToggle = {
-                        noteIds = if (note.id in noteIds) {
-                            noteIds - note.id
-                        } else {
-                            noteIds + note.id
-                        }
-                    }
+        } else {
+            val list = notes.filter {
+                if (folderId == FishReference.UNFILED_ID) it.folderId == null
+                else it.folderId == folderId
+            }
+            if (list.isEmpty()) {
+                Text(
+                    text = "这个分类里还没有笔记。",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(20.dp)
                 )
+            } else {
+                LazyColumn(modifier = Modifier.weight(1f, fill = false)) {
+                    items(items = list, key = { it.id }) { note ->
+                        NotePickRow(
+                            name = note.title.ifBlank { "未命名笔记" },
+                            hint = formatDateTime(note.createdAt),
+                            checked = note.id in noteIds,
+                            onToggle = { noteIds = toggle(noteIds, note.id) }
+                        )
+                    }
+                }
             }
         }
 
@@ -492,9 +640,6 @@ private fun ReferencePicker(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.weight(1f)
             )
-            IconButton(onClick = { onApply(FishReference()) }) {
-                Icon(Icons.Default.Close, contentDescription = "重置")
-            }
             TextButton(onClick = { onApply(FishReference(noteIds, folderIds)) }) {
                 Text("完成")
             }
@@ -503,19 +648,48 @@ private fun ReferencePicker(
     }
 }
 
+private fun <T> toggle(set: Set<T>, value: T): Set<T> =
+    if (value in set) set - value else set + value
+
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun SectionTitle(text: String) {
-    Text(
-        text = text,
-        style = MaterialTheme.typography.labelMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(start = 20.dp, top = 12.dp, bottom = 4.dp)
-    )
+private fun FolderPickRow(
+    name: String,
+    count: Int,
+    checked: Boolean,
+    onToggle: () -> Unit,
+    onOpen: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .combinedClickable(onClick = onToggle, onDoubleClick = onOpen)
+            .padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Checkbox(checked = checked, onCheckedChange = { onToggle() })
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = name,
+                style = MaterialTheme.typography.bodyLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = "$count 篇",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        IconButton(onClick = onOpen) {
+            Icon(Icons.Default.ChevronRight, contentDescription = "查看这个分类里的笔记")
+        }
+    }
 }
 
 @Composable
-private fun PickRow(
-    label: String,
+private fun NotePickRow(
+    name: String,
     hint: String?,
     checked: Boolean,
     onToggle: () -> Unit
@@ -524,13 +698,13 @@ private fun PickRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onToggle() }
-            .padding(horizontal = 16.dp, vertical = 2.dp),
+            .padding(start = 20.dp, end = 16.dp, top = 2.dp, bottom = 2.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Checkbox(checked = checked, onCheckedChange = { onToggle() })
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = label,
+                text = name,
                 style = MaterialTheme.typography.bodyMedium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
