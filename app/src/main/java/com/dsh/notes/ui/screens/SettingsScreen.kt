@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.RadioButtonChecked
+import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Info
@@ -508,6 +509,50 @@ fun SettingsScreen(
                     subtitle = "每次转写整理完成后直接写入 .md，不用手动点",
                     checked = settings.autoExport,
                     onCheckedChange = viewModel::setAutoExport
+                )
+            }
+
+            // ================= 大肥鱼 =================
+            SettingsSection(
+                icon = Icons.Default.SmartToy,
+                title = "大肥鱼（AI 问答）",
+                subtitle = "笔记页那个机器人球后面的助手"
+            ) {
+                CommittedTextField(
+                    label = "名字",
+                    initial = settings.fishName,
+                    supporting = "显示在问答页标题和每条回答前面",
+                    onCommit = viewModel::setFishName
+                )
+                Spacer(Modifier.height(10.dp))
+                CommittedTextField(
+                    label = "API Key",
+                    initial = settings.fishApiKey,
+                    placeholder = "留空 = 沿用「笔记整理」那一套",
+                    supporting = "想用别的服务商回答问题时填这里",
+                    secret = true,
+                    onCommit = viewModel::setFishApiKey
+                )
+                Spacer(Modifier.height(10.dp))
+                CommittedTextField(
+                    label = "BaseURL",
+                    initial = settings.fishBaseUrl,
+                    placeholder = "留空 = 沿用「笔记整理」的地址",
+                    onCommit = viewModel::setFishBaseUrl
+                )
+                Spacer(Modifier.height(10.dp))
+                CommittedTextField(
+                    label = "模型",
+                    initial = settings.fishModel,
+                    placeholder = "留空 = 沿用「笔记整理」的模型",
+                    onCommit = viewModel::setFishModel
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = "大肥鱼没有联网能力：回答只基于你选中的笔记和模型自身的知识，" +
+                        "拿不准的会直接说不知道。需要查最新资料时，回答下方有「在浏览器里搜索」。",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 

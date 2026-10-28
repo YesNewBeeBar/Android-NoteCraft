@@ -27,8 +27,8 @@ class NoteConverters {
 }
 
 @Database(
-    entities = [Note::class, Folder::class],
-    version = 2,
+    entities = [Note::class, Folder::class, ChatSession::class, ChatMessage::class],
+    version = 3,
     exportSchema = true
 )
 @TypeConverters(NoteConverters::class)
@@ -37,6 +37,8 @@ abstract class NotesDatabase : RoomDatabase() {
     abstract fun noteDao(): NoteDao
 
     abstract fun folderDao(): FolderDao
+
+    abstract fun chatDao(): ChatDao
 
     companion object {
         private const val DB_NAME = "notecraft.db"
@@ -61,9 +63,33 @@ abstract class NotesDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v2 -> v3：加大肥鱼的对话历史。
+         *
+         * 只建两张新表，不动 notes / folders —— 老用户的笔记原样保留。
+         */
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS chat_sessions (" +
+                        "id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "title TEXT NOT NULL, " +
+                        "createdAt INTEGER NOT NULL, " +
+                        "updatedAt INTEGER NOT NULL)"
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS chat_messages (" +
+                        "id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "sessionId INTEGER NOT NULL, " +
+                        "role TEXT NOT NULL, " +
+                        "content TEXT NOT NULL, " +
+                        "createdAt INTEGER NOT NULL)"
+                )
+            }
+        }
+
         @Volatile
         private var instance: NotesDatabase? = null
-
         fun build(context: Context): NotesDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -71,7 +97,7 @@ abstract class NotesDatabase : RoomDatabase() {
                     NotesDatabase::class.java,
                     DB_NAME
                 )
-                    .addMigrations(MIGRATION_1_2)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .build()
                     .also { instance = it }
             }

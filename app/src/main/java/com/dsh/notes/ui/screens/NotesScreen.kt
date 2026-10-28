@@ -56,6 +56,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
@@ -71,11 +72,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.dsh.notes.R
 import com.dsh.notes.data.Folder
 import com.dsh.notes.data.Note
 import com.dsh.notes.data.NotesViewMode
@@ -103,6 +106,8 @@ fun NotesScreen(
     themeMode: ThemeMode,
     onToggleTheme: () -> Unit,
     onOpenNote: (Long) -> Unit,
+    /** 打开大肥鱼问答页。只从这里（导入音频上方的机器人球）能进 */
+    onOpenFish: () -> Unit,
     sharedAudioUris: List<Uri> = emptyList(),
     onSharedAudioConsumed: () -> Unit = {}
 ) {
@@ -246,11 +251,29 @@ fun NotesScreen(
         },
         floatingActionButton = {
             if (!selectionMode) {
-                ExtendedFloatingActionButton(
-                    onClick = { pickAudio.launch(arrayOf("audio/*")) },
-                    icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                    text = { Text("导入音频") }
-                )
+                Column(
+                    horizontalAlignment = Alignment.End,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    // 大肥鱼入口：导入音频上方的一个小圆球
+                    SmallFloatingActionButton(
+                        onClick = onOpenFish,
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_fish_robot),
+                            contentDescription = "大肥鱼",
+                            tint = androidx.compose.ui.graphics.Color.Unspecified,
+                            modifier = Modifier.size(26.dp)
+                        )
+                    }
+                    ExtendedFloatingActionButton(
+                        onClick = { pickAudio.launch(arrayOf("audio/*")) },
+                        icon = { Icon(Icons.Default.Add, contentDescription = null) },
+                        text = { Text("导入音频") }
+                    )
+                }
             }
         }
     ) { padding ->

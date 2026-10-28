@@ -25,6 +25,7 @@ class NoteCraftViewModelFactory(
             modelClass.isAssignableFrom(NotesViewModel::class.java) -> NotesViewModel(container)
             modelClass.isAssignableFrom(NoteDetailViewModel::class.java) -> NoteDetailViewModel(container, noteId)
             modelClass.isAssignableFrom(SettingsViewModel::class.java) -> SettingsViewModel(container)
+            modelClass.isAssignableFrom(FishAiViewModel::class.java) -> FishAiViewModel(container)
             else -> throw IllegalArgumentException("不认识的 ViewModel：${modelClass.name}")
         }
         return viewModel as T

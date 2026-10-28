@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 录音中的悬浮球：红底 + 白边，一眼能看出正在录 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <solid android:color="#D93A2B" />
+    <stroke
+        android:width="2dp"
+        android:color="#B3FFFFFF" />
+</shape>

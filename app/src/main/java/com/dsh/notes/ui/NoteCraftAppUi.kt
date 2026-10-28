@@ -1,6 +1,15 @@
 package com.dsh.notes.ui
 
 import android.net.Uri
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Mic
@@ -12,6 +21,7 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -19,6 +29,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -35,6 +46,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.dsh.notes.ui.components.UpdateDialog
+import com.dsh.notes.ui.screens.FishAiScreen
 import com.dsh.notes.ui.screens.NoteDetailScreen
 import com.dsh.notes.ui.screens.NotesScreen
 import com.dsh.notes.ui.screens.PromptSettingsScreen
@@ -99,11 +111,13 @@ fun NoteCraftApp(
     UpdateDialog(
         state = updateState,
         onInstall = { mainViewModel.installUpdate() },
-        onLater = { mainViewModel.dismissUpdate() },
+        onLater = { mainViewModel.postponeUpdate() },
+        onSkipVersion = { mainViewModel.skipUpdateVersion() },
         onOpenRelease = { url -> WebLinks.open(context, url) }
     )
 
     NoteCraftTheme(themeMode = settings.themeMode) {
+      Box(modifier = Modifier.fillMaxSize()) {
         val navController = rememberNavController()
         val backStackEntry by navController.currentBackStackEntryAsState()
         val currentRoute = backStackEntry?.destination?.route
@@ -173,6 +187,7 @@ fun NoteCraftApp(
                         themeMode = settings.themeMode,
                         onToggleTheme = onToggleTheme,
                         onOpenNote = { noteId -> navController.navigate("note/$noteId") },
+                        onOpenFish = { mainViewModel.openFish() },
                         sharedAudioUris = sharedAudioUris,
                         onSharedAudioConsumed = onSharedAudioConsumed
                     )
@@ -218,5 +233,38 @@ fun NoteCraftApp(
                 }
             }
         }
+
+        /*
+         * 大肥鱼覆盖层。
+         *
+         * 刻意不放进 NavHost：它只能从笔记页的机器人球进入，不是一个平级页面。
+         * 盖在 Scaffold 外面，连底部导航一起挡住，视觉上才是真正的整页。
+         * 进场从右下角（球的位置）扩散到全屏。
+         */
+        val fishOpen by mainViewModel.fishOpen.collectAsStateWithLifecycle()
+        val fishViewModel: FishAiViewModel = viewModel(factory = viewModelFactory)
+        BackHandler(enabled = fishOpen) { mainViewModel.closeFish() }
+
+        AnimatedVisibility(
+            visible = fishOpen,
+            enter = scaleIn(
+                animationSpec = tween(260),
+                initialScale = 0.12f,
+                transformOrigin = TransformOrigin(0.84f, 0.86f)
+            ) + fadeIn(tween(180)),
+            exit = scaleOut(
+                animationSpec = tween(200),
+                targetScale = 0.12f,
+                transformOrigin = TransformOrigin(0.84f, 0.86f)
+            ) + fadeOut(tween(140))
+        ) {
+            Surface(modifier = Modifier.fillMaxSize()) {
+                FishAiScreen(
+                    viewModel = fishViewModel,
+                    onClose = { mainViewModel.closeFish() }
+                )
+            }
+        }
+      }
     }
 }

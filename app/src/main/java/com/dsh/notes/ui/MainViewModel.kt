@@ -56,15 +56,26 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
-    /** 下载更新包并拉起系统安装器 */
+    /**
+     * 下载更新包并拉起系统安装器。
+     *
+     * 放在 appScope 而不是 viewModelScope：下载常常要跑几十秒，
+     * 用户很可能按 Home 键切后台、甚至把界面划掉。挂在 ViewModel 上的话
+     * Activity 一销毁下载就被取消，表现就是「放后台就失败」。
+     */
     fun installUpdate() {
-        viewModelScope.launch {
+        container.appScope.launch {
             container.updater.downloadAndInstall()?.let { _toast.value = it }
         }
     }
 
-    /** 用户点了「稍后」：这个版本不再自动弹窗 */
-    fun dismissUpdate() {
+    /** 「暂不更新」：这次进入不再打扰，下次启动照常提示 */
+    fun postponeUpdate() {
+        container.updater.postponeForSession()
+    }
+
+    /** 「跳过此版本」：记下版本号，同版本以后不再提示，出现新版本才再提示 */
+    fun skipUpdateVersion() {
         val info = (container.updater.state.value as? UpdateState.Available)?.info ?: return
         viewModelScope.launch { container.updater.dismiss(info) }
     }
@@ -98,6 +109,21 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
 
     fun publishProgress(progress: PipelineProgress?) {
         _progress.value = progress
+    }
+
+    // ---------------------------------------------------------------- 大肥鱼
+
+    private val _fishOpen = MutableStateFlow(false)
+
+    /** 问答页是否展开。只能由笔记页的机器人球打开 */
+    val fishOpen: StateFlow<Boolean> = _fishOpen.asStateFlow()
+
+    fun openFish() {
+        _fishOpen.value = true
+    }
+
+    fun closeFish() {
+        _fishOpen.value = false
     }
 
     fun notify(message: String) {

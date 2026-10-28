@@ -135,9 +135,17 @@ class UpdateManager(
         return failure
     }
 
-    /** 用户点了「稍后」：记住这个版本，自动检查时不再弹 */
+    /** 「跳过此版本」：记住版本号，之后同一版本不再自动提示；出现新版本照样提示 */
     suspend fun dismiss(info: UpdateInfo) {
         settingsStore.setIgnoredUpdateVersion(info.versionName)
+        _state.value = UpdateState.Idle
+    }
+
+    /**
+     * 「暂不更新」：只关掉界面，不记住版本。
+     * 本次进入不再打扰，下次启动或下次回到前台（过了限流时间）依然会提示。
+     */
+    fun postponeForSession() {
         _state.value = UpdateState.Idle
     }
 

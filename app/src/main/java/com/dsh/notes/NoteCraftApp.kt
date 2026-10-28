@@ -44,6 +44,9 @@ class AppContainer(private val app: Application) {
 
     val ai: AiClients by lazy { AiClients(settings) }
 
+    /** 大肥鱼的对话历史 */
+    val chatDao get() = database.chatDao()
+
     val exporter: NotesExporter by lazy { NotesExporter(app, settings, repository) }
 
     val pipeline: NotePipeline by lazy { NotePipeline(app, repository, settings, ai, exporter) }

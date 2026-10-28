@@ -42,6 +42,16 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
 
     val localEngineAvailable: Boolean = LocalTranscriber(container.context).isAvailable
 
+    // ---------------------------------------------------------------- 大肥鱼
+
+    fun setFishName(value: String) = viewModelScope.launch { container.settings.setFishName(value) }
+
+    fun setFishBaseUrl(value: String) = viewModelScope.launch { container.settings.setFishBaseUrl(value) }
+
+    fun setFishApiKey(value: String) = viewModelScope.launch { container.settings.setFishApiKey(value) }
+
+    fun setFishModel(value: String) = viewModelScope.launch { container.settings.setFishModel(value) }
+
     // ---------------------------------------------------------------- 悬浮球
 
     fun setFloatingBallEnabled(enabled: Boolean) {

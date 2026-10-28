@@ -2,9 +2,14 @@ package com.dsh.notes.ai
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -91,6 +96,92 @@ class DeepSeekClient(private val client: OkHttpClient) {
     ): String = withContext(Dispatchers.IO) {
         val raw = callOnce(baseUrl, apiKey, model, systemPrompt, userPrompt, temperature, jsonMode = false)
         AiTextCodec.extractChatContent(raw)
+    }
+
+    /**
+     * 流式对话（SSE）：每来一段就回调一次，最后返回完整文本。
+     *
+     * 大肥鱼必须用流式：一次回答经常要十几秒，非流式的话界面会一直空白，
+     * 用户不知道是在思考还是卡死了。
+     */
+    suspend fun chatStream(
+        baseUrl: String,
+        apiKey: String,
+        model: String,
+        messages: List<Pair<String, String>>,
+        temperature: Float = 0.6f,
+        onDelta: (String) -> Unit
+    ): String = withContext(Dispatchers.IO) {
+        if (apiKey.isBlank()) {
+            throw AiException(
+                "还没填 API Key",
+                hint = "去「设置 → 大肥鱼」填一个，或让它沿用笔记整理那套"
+            )
+        }
+        if (messages.isEmpty()) throw AiException("没有要发送的内容")
+
+        val payload = buildJsonObject {
+            put("model", model.ifBlank { "deepseek-chat" })
+            put("temperature", temperature)
+            put("stream", true)
+            put("messages", buildJsonArray {
+                messages.forEach { (role, content) ->
+                    add(buildJsonObject {
+                        put("role", role)
+                        put("content", content)
+                    })
+                }
+            })
+        }
+
+        val request = Request.Builder()
+            .url(endpointOf(baseUrl))
+            .header("Authorization", "Bearer ${apiKey.trim()}")
+            .header("Accept", "text/event-stream")
+            .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
+            .build()
+
+        val response = try {
+            client.newCall(request).execute()
+        } catch (io: IOException) {
+            throw AiException(
+                "连不上 AI 服务：${io.message ?: "网络错误"}",
+                io,
+                hint = "检查网络，以及 BaseURL 是否写对（DeepSeek 是 https://api.deepseek.com）"
+            )
+        }
+
+        response.use { resp ->
+            if (!resp.isSuccessful) {
+                val raw = resp.body?.string().orEmpty()
+                throw AiException(
+                    "AI 服务返回 HTTP ${resp.code}",
+                    hint = explainHttpError(resp.code, raw)
+                )
+            }
+            val source = resp.body?.source() ?: throw AiException("AI 服务没有返回内容")
+
+            val builder = StringBuilder()
+            while (true) {
+                val line = source.readUtf8Line() ?: break
+                if (!line.startsWith("data:")) continue
+                val data = line.removePrefix("data:").trim()
+                if (data == "[DONE]") break
+
+                val delta = runCatching {
+                    Json.parseToJsonElement(data).jsonObject["choices"]
+                        ?.jsonArray?.firstOrNull()?.jsonObject
+                        ?.get("delta")?.jsonObject
+                        ?.get("content")?.jsonPrimitive?.contentOrNull
+                }.getOrNull().orEmpty()
+
+                if (delta.isNotEmpty()) {
+                    builder.append(delta)
+                    onDelta(delta)
+                }
+            }
+            builder.toString()
+        }
     }
 
     private fun callOnce(

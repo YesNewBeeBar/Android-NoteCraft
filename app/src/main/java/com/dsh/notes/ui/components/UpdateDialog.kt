@@ -1,9 +1,11 @@
 package com.dsh.notes.ui.components
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.AlertDialog
@@ -32,7 +34,10 @@ import com.dsh.notes.update.UpdateState
 fun UpdateDialog(
     state: UpdateState,
     onInstall: () -> Unit,
+    /** 这次先不更：本次进入不再提示，下次启动照常提示 */
     onLater: () -> Unit,
+    /** 跳过这个版本：记下版本号，之后同一版本不再提示，出现更新版本才会再提示 */
+    onSkipVersion: () -> Unit,
     onOpenRelease: (String) -> Unit
 ) {
     val info = when (state) {
@@ -87,7 +92,11 @@ fun UpdateDialog(
         },
         dismissButton = {
             if (downloading == null) {
-                TextButton(onClick = onLater) { Text("稍后") }
+                Row {
+                    TextButton(onClick = onSkipVersion) { Text("跳过此版本") }
+                    Spacer(Modifier.width(4.dp))
+                    TextButton(onClick = onLater) { Text("暂不更新") }
+                }
             } else {
                 TextButton(onClick = { onOpenRelease(info.releaseUrl) }) { Text("打不开？去发布页") }
             }

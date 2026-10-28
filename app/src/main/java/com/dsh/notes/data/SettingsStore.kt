@@ -160,6 +160,15 @@ data class AppSettings(
     /** 自定义图案的文件路径；空表示用内置麦克风图标 */
     val floatingBallIconPath: String = "",
 
+    // ---------- 大肥鱼（AI 问答）----------
+    /** 助手名字，默认「大肥鱼」 */
+    val fishName: String = "大肥鱼",
+
+    /** 下面三项留空 = 沿用「笔记整理」那一套配置 */
+    val fishBaseUrl: String = "",
+    val fishApiKey: String = "",
+    val fishModel: String = "",
+
     // ---------- 更新 ----------
     /** 上次检查更新的时间戳；自动检查靠它限流，免得每次开 App 都打一次 GitHub */
     val lastUpdateCheckAt: Long = 0L,
@@ -236,6 +245,10 @@ class SettingsStore(private val context: Context) {
         val floatingBallSize = stringPreferencesKey("floating_ball_size")
         val floatingBallAlpha = stringPreferencesKey("floating_ball_alpha")
         val floatingBallIconPath = stringPreferencesKey("floating_ball_icon_path")
+        val fishName = stringPreferencesKey("fish_name")
+        val fishBaseUrl = stringPreferencesKey("fish_base_url")
+        val fishApiKey = stringPreferencesKey("fish_api_key_enc")
+        val fishModel = stringPreferencesKey("fish_model")
 
         val lastUpdateCheckAt = stringPreferencesKey("last_update_check_at")
         val ignoredUpdateVersion = stringPreferencesKey("ignored_update_version")
@@ -279,6 +292,10 @@ class SettingsStore(private val context: Context) {
             floatingBallSizeDp = (prefs[Keys.floatingBallSize] ?: "56").toIntOrNull() ?: 56,
             floatingBallAlpha = (prefs[Keys.floatingBallAlpha] ?: "0.9").toFloatOrNull() ?: 0.9f,
             floatingBallIconPath = prefs[Keys.floatingBallIconPath] ?: "",
+            fishName = prefs[Keys.fishName]?.takeIf { it.isNotBlank() } ?: "大肥鱼",
+            fishBaseUrl = prefs[Keys.fishBaseUrl] ?: "",
+            fishApiKey = CryptoUtils.decrypt(prefs[Keys.fishApiKey] ?: ""),
+            fishModel = prefs[Keys.fishModel] ?: "",
             lastUpdateCheckAt = (prefs[Keys.lastUpdateCheckAt] ?: "0").toLongOrNull() ?: 0L,
             ignoredUpdateVersion = prefs[Keys.ignoredUpdateVersion] ?: ""
         )
@@ -342,6 +359,14 @@ class SettingsStore(private val context: Context) {
     suspend fun setFloatingBallAlpha(alpha: Float) = put(Keys.floatingBallAlpha, alpha.toString())
 
     suspend fun setFloatingBallIconPath(path: String) = put(Keys.floatingBallIconPath, path)
+
+    suspend fun setFishName(value: String) = put(Keys.fishName, value.trim().ifBlank { "大肥鱼" })
+
+    suspend fun setFishBaseUrl(value: String) = put(Keys.fishBaseUrl, value.trim())
+
+    suspend fun setFishApiKey(value: String) = put(Keys.fishApiKey, CryptoUtils.encrypt(value.trim()))
+
+    suspend fun setFishModel(value: String) = put(Keys.fishModel, value.trim())
 
     suspend fun setLastUpdateCheckAt(value: Long) = put(Keys.lastUpdateCheckAt, value.toString())
 

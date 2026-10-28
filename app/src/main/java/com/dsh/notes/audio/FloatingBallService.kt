@@ -204,16 +204,17 @@ class FloatingBallService : Service() {
             setImageResource(R.drawable.ic_bubble_mic)
         }
 
+        // 默认放屏幕左侧：这样展开时操作条往右伸，球本身完全不用动
+        container.addView(
+            ball,
+            LinearLayout.LayoutParams(sizePx, sizePx)
+        )
         container.addView(
             actionPanel,
             LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-        )
-        container.addView(
-            ball,
-            LinearLayout.LayoutParams(sizePx, sizePx).apply { setMargins(dp(6), 0, 0, 0) }
+            ).apply { marginStart = dp(6) }
         )
 
         val layoutParams = WindowManager.LayoutParams(
@@ -225,7 +226,7 @@ class FloatingBallService : Service() {
         ).apply {
             gravity = Gravity.TOP or Gravity.START
             val metrics = resources.displayMetrics
-            x = (metrics.widthPixels - sizePx - dp(12)).coerceAtLeast(0)
+            x = dp(12)
             y = metrics.heightPixels / 3
         }
 
@@ -391,12 +392,44 @@ class FloatingBallService : Service() {
         val current = params ?: return
         actionPanel.visibility = View.VISIBLE
         expanded = true
+
         actionPanel.post {
             panelWidth = actionPanel.width
-            // 窗口整体左移，球本身留在原地
-            current.x -= panelWidth
-            clampInto()
-            root?.let { runCatching { windowManager?.updateViewLayout(it, current) } }
+            val metrics = resources.displayMetrics
+            val ballWidth = bubble?.width ?: 0
+
+            /*
+             * 球的位置一点都不能动。
+             *
+             * 默认球在最左边、操作条往右伸，所以最常见的情况本来就不用挪。
+             * 只有用户把球拖到屏幕右侧、右边放不下时才把操作条翻到左边去 ——
+             * 翻的是布局顺序，不是窗口坐标，球依然一动不动。
+             */
+            val roomRight = metrics.widthPixels - (current.x + ballWidth)
+            val panelOnRight = roomRight >= panelWidth
+
+            root?.let { container ->
+                container.removeAllViews()
+                val ballView = bubble ?: return@let
+                val ballLp = LinearLayout.LayoutParams(
+                    ballView.width.coerceAtLeast(dp(40)),
+                    ballView.height.coerceAtLeast(dp(40))
+                )
+                val panelLp = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+                if (panelOnRight) {
+                    panelLp.marginStart = dp(6)
+                    container.addView(ballView, ballLp)
+                    container.addView(actionPanel, panelLp)
+                } else {
+                    panelLp.marginEnd = dp(6)
+                    container.addView(actionPanel, panelLp)
+                    container.addView(ballView, ballLp)
+                }
+            }
+            runCatching { root?.let { windowManager?.updateViewLayout(it, current) } }
         }
     }
 
@@ -405,9 +438,8 @@ class FloatingBallService : Service() {
         val current = params ?: return
         actionPanel.visibility = View.GONE
         expanded = false
-        current.x += panelWidth
-        clampInto()
-        root?.let { runCatching { windowManager?.updateViewLayout(it, current) } }
+        // 收起时顺序无所谓，统一回到「球在左」，下次展开从最常见的情况开始
+        runCatching { root?.let { windowManager?.updateViewLayout(it, current) } }
     }
 
     private fun clampInto() {
@@ -445,6 +477,13 @@ class FloatingBallService : Service() {
                 btnStop?.apply {
                     isEnabled = recording || paused
                     alpha = if (isEnabled) 1f else 0.35f
+                }
+
+                // 录音中把默认皮肤染红。用相册自定义图案的不染色 —— 照片没法整体染
+                if (loadedIconStamp == 0L) {
+                    bubble?.setBackgroundResource(
+                        if (recording) R.drawable.bg_bubble_recording else R.drawable.bg_bubble
+                    )
                 }
             }
         }
