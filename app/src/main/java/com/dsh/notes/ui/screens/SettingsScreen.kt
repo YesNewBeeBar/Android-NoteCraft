@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.RadioButtonChecked
+import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.Delete
@@ -719,6 +720,31 @@ fun SettingsScreen(
                 }
             }
 
+            // ================= 实验性功能 =================
+            SettingsSection(
+                icon = Icons.Default.Science,
+                title = "实验性功能",
+                subtitle = "可能影响稳定性，默认关闭"
+            ) {
+                SwitchRow(
+                    title = "磨砂玻璃",
+                    subtitle = "顶栏与底栏改为半透明，Android 12 以上更明显",
+                    checked = settings.experimentalGlass,
+                    onCheckedChange = viewModel::setExperimentalGlass
+                )
+                SwitchRow(
+                    title = "过渡动效",
+                    subtitle = "页面切换加入淡入淡出",
+                    checked = settings.experimentalMotion,
+                    onCheckedChange = viewModel::setExperimentalMotion
+                )
+                SwitchRow(
+                    title = "横滑切换",
+                    subtitle = "在录音 / 笔记 / 设置之间左右滑动切换",
+                    checked = settings.experimentalSwipeTabs,
+                    onCheckedChange = viewModel::setExperimentalSwipeTabs
+                )
+            }
             // ================= 存储与缓存 =================
             SettingsSection(
                 icon = Icons.Default.CleaningServices,

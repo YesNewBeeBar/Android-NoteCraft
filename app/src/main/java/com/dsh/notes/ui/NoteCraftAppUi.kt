@@ -2,6 +2,14 @@ package com.dsh.notes.ui
 
 import android.net.Uri
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBarDefaults
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.unit.dp
+import kotlin.math.abs
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -128,7 +136,15 @@ fun NoteCraftApp(
             snackbarHost = { SnackbarHost(snackbar) },
             bottomBar = {
                 if (showBottomBar) {
-                    NavigationBar {
+                    // 磨砂玻璃：底栏改成半透明，让下面的内容隐约透出来
+                    NavigationBar(
+                        containerColor = if (settings.experimentalGlass) {
+                            MaterialTheme.colorScheme.surface.copy(alpha = 0.82f)
+                        } else {
+                            NavigationBarDefaults.containerColor
+                        },
+                        tonalElevation = if (settings.experimentalGlass) 0.dp else 3.dp
+                    ) {
                         Destination.entries.forEach { destination ->
                             // 设置页带 focus 参数，destination.route 里会多一段查询串，比之前先剥掉
                             val selected = backStackEntry?.destination?.hierarchy
@@ -154,10 +170,57 @@ fun NoteCraftApp(
                 }
             }
         ) { innerPadding ->
+            // 实验性：在三个主 tab 之间横滑切换。
+            // 用父级手势而不是 Pager：不会打乱现有返回栈，
+            // 子组件（笔记卡片的左滑）自己消费横向手势时这里收不到事件，互不干扰。
+            val topLevelIndex = Destination.entries
+                .indexOfFirst { it.route == currentRoute?.substringBefore('?') }
+            val swipeModifier = if (settings.experimentalSwipeTabs &&
+                showBottomBar &&
+                topLevelIndex >= 0
+            ) {
+                Modifier.pointerInput(topLevelIndex) {
+                    var total = 0f
+                    detectHorizontalDragGestures(
+                        onDragStart = { total = 0f },
+                        onHorizontalDrag = { _, dragAmount -> total += dragAmount },
+                        onDragEnd = {
+                            if (abs(total) > 140f) {
+                                val target = if (total < 0) topLevelIndex + 1 else topLevelIndex - 1
+                                Destination.entries.getOrNull(target)?.let { destination ->
+                                    navController.navigate(destination.route) {
+                                        popUpTo(navController.graph.findStartDestination().id) {
+                                            saveState = true
+                                        }
+                                        launchSingleTop = true
+                                        restoreState = true
+                                    }
+                                }
+                            }
+                        }
+                    )
+                }
+            } else {
+                Modifier
+            }
+
+            Box(modifier = Modifier.fillMaxSize().then(swipeModifier)) {
             NavHost(
                 navController = navController,
                 startDestination = Destination.RECORD.route,
-                modifier = Modifier.padding(innerPadding)
+                modifier = Modifier.padding(innerPadding),
+                enterTransition = {
+                    if (settings.experimentalMotion) fadeIn(tween(180)) else EnterTransition.None
+                },
+                exitTransition = {
+                    if (settings.experimentalMotion) fadeOut(tween(140)) else ExitTransition.None
+                },
+                popEnterTransition = {
+                    if (settings.experimentalMotion) fadeIn(tween(180)) else EnterTransition.None
+                },
+                popExitTransition = {
+                    if (settings.experimentalMotion) fadeOut(tween(140)) else ExitTransition.None
+                }
             ) {
                 composable(Destination.RECORD.route) {
                     RecordingScreen(
@@ -232,6 +295,7 @@ fun NoteCraftApp(
                         onOpenFishFull = { mainViewModel.openFish() }
                     )
                 }
+            }
             }
         }
 

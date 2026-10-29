@@ -47,6 +47,17 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
     fun setCloudAsrLanguage(value: String) =
         viewModelScope.launch { container.settings.setCloudAsrLanguage(value) }
 
+    // ---------------------------------------------------------------- 实验性功能
+
+    fun setExperimentalGlass(value: Boolean) =
+        viewModelScope.launch { container.settings.setExperimentalGlass(value) }
+
+    fun setExperimentalMotion(value: Boolean) =
+        viewModelScope.launch { container.settings.setExperimentalMotion(value) }
+
+    fun setExperimentalSwipeTabs(value: Boolean) =
+        viewModelScope.launch { container.settings.setExperimentalSwipeTabs(value) }
+
     // ---------------------------------------------------------------- 大肥鱼
 
     fun setFishName(value: String) = viewModelScope.launch { container.settings.setFishName(value) }

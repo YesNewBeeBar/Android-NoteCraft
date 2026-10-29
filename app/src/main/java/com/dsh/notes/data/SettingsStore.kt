@@ -163,6 +163,16 @@ data class AppSettings(
     /** 云端转写的语言代码：zh / en / …；留空表示不发送该参数，交给服务端判断 */
     val cloudAsrLanguage: String = "zh",
 
+    // ---------- 实验性功能 ----------
+    /** 磨砂玻璃：顶栏/底栏改成半透明 */
+    val experimentalGlass: Boolean = false,
+
+    /** 过渡动效：页面切换加淡入淡出 */
+    val experimentalMotion: Boolean = false,
+
+    /** 横滑切换三个主 tab */
+    val experimentalSwipeTabs: Boolean = false,
+
     // ---------- 大肥鱼（AI 问答）----------
     /** 助手名字，默认「大肥鱼」 */
     val fishName: String = "大肥鱼",
@@ -249,6 +259,9 @@ class SettingsStore(private val context: Context) {
         val floatingBallAlpha = stringPreferencesKey("floating_ball_alpha")
         val floatingBallIconPath = stringPreferencesKey("floating_ball_icon_path")
         val cloudAsrLanguage = stringPreferencesKey("cloud_asr_language")
+        val experimentalGlass = booleanPreferencesKey("experimental_glass")
+        val experimentalMotion = booleanPreferencesKey("experimental_motion")
+        val experimentalSwipeTabs = booleanPreferencesKey("experimental_swipe_tabs")
         val fishName = stringPreferencesKey("fish_name")
         val fishBaseUrl = stringPreferencesKey("fish_base_url")
         val fishApiKey = stringPreferencesKey("fish_api_key_enc")
@@ -297,6 +310,9 @@ class SettingsStore(private val context: Context) {
             floatingBallAlpha = (prefs[Keys.floatingBallAlpha] ?: "0.9").toFloatOrNull() ?: 0.9f,
             floatingBallIconPath = prefs[Keys.floatingBallIconPath] ?: "",
             cloudAsrLanguage = prefs[Keys.cloudAsrLanguage] ?: "zh",
+            experimentalGlass = prefs[Keys.experimentalGlass] ?: false,
+            experimentalMotion = prefs[Keys.experimentalMotion] ?: false,
+            experimentalSwipeTabs = prefs[Keys.experimentalSwipeTabs] ?: false,
             fishName = prefs[Keys.fishName]?.takeIf { it.isNotBlank() } ?: "大肥鱼",
             fishBaseUrl = prefs[Keys.fishBaseUrl] ?: "",
             fishApiKey = CryptoUtils.decrypt(prefs[Keys.fishApiKey] ?: ""),
@@ -366,6 +382,12 @@ class SettingsStore(private val context: Context) {
     suspend fun setFloatingBallIconPath(path: String) = put(Keys.floatingBallIconPath, path)
 
     suspend fun setCloudAsrLanguage(value: String) = put(Keys.cloudAsrLanguage, value.trim())
+
+    suspend fun setExperimentalGlass(value: Boolean) = put(Keys.experimentalGlass, value)
+
+    suspend fun setExperimentalMotion(value: Boolean) = put(Keys.experimentalMotion, value)
+
+    suspend fun setExperimentalSwipeTabs(value: Boolean) = put(Keys.experimentalSwipeTabs, value)
 
     suspend fun setFishName(value: String) = put(Keys.fishName, value.trim().ifBlank { "大肥鱼" })
 
