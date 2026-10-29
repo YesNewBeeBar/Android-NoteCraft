@@ -28,7 +28,7 @@ import com.dsh.notes.data.NoteStatus
 import com.dsh.notes.data.StorageFormat
 
 import com.dsh.notes.pipeline.ProcessingQueue
-import com.dsh.notes.pipeline.languageTag
+import com.dsh.notes.pipeline.cloudLanguageTag
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -287,7 +287,7 @@ class RecordingService : Service() {
         baseUrl = settings.asrBaseUrl,
         apiKey = settings.asrApiKey,
         model = settings.asrModel,
-        language = settings.languageTag(),
+        language = settings.cloudLanguageTag(),
         sampleRate = sampleRate,
         chunkMs = settings.liveCaptionChunkMs,
         onSegment = { text -> onCaptionSegment(text) },

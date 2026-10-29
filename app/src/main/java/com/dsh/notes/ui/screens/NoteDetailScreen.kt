@@ -122,6 +122,7 @@ fun NoteDetailScreen(
     val speech by viewModel.speech.collectAsStateWithLifecycle()
     val suspects by viewModel.suspects.collectAsStateWithLifecycle()
     val checking by viewModel.checking.collectAsStateWithLifecycle()
+    val askReorganize by viewModel.askReorganize.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
     val snackbar = remember { SnackbarHostState() }
@@ -133,6 +134,7 @@ fun NoteDetailScreen(
     var titleDraft by remember { mutableStateOf("") }
     var bodyDraft by remember { mutableStateOf("") }
     var showDeleteDialog by remember { mutableStateOf(false) }
+    var showDeleteAudioDialog by remember { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
     var showToolsDialog by remember { mutableStateOf(false) }
     var pendingTreeUri by remember { mutableStateOf<String?>(null) }
@@ -619,6 +621,10 @@ fun NoteDetailScreen(
                         showToolsDialog = false
                         viewModel.checkSuspects()
                     }
+                    ToolRow("删除音频文件…", Icons.Default.GraphicEq) {
+                        showToolsDialog = false
+                        showDeleteAudioDialog = true
+                    }
                     if (checking) {
                         Spacer(Modifier.height(8.dp))
                         Text(
@@ -642,6 +648,42 @@ fun NoteDetailScreen(
             onApply = viewModel::applyCorrection,
             onKeep = viewModel::dismissSuspect,
             onClose = viewModel::clearSuspects
+        )
+    }
+
+    // 可疑词全部确认完了：问一句要不要用改过的文本重新整理
+    if (askReorganize) {
+        AlertDialog(
+            onDismissRequest = viewModel::dismissReorganize,
+            title = { Text("用新文本重新整理？") },
+            text = { Text("可疑词已替换。重新整理会让正文按修正后的文字重写一遍。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.dismissReorganize()
+                    viewModel.summarize()
+                }) { Text("重新整理") }
+            },
+            dismissButton = {
+                TextButton(onClick = viewModel::dismissReorganize) { Text("暂不") }
+            }
+        )
+    }
+
+    // 删除音频二次确认
+    if (showDeleteAudioDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteAudioDialog = false },
+            title = { Text("删除音频文件？") },
+            text = { Text("只删除录音，笔记正文与转写文字保留。此操作不可撤销。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDeleteAudioDialog = false
+                    viewModel.deleteAudio()
+                }) { Text("删除") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteAudioDialog = false }) { Text("取消") }
+            }
         )
     }
 }

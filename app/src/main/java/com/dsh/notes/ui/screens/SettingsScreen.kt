@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.RadioButtonChecked
 import androidx.compose.material.icons.filled.SmartToy
+import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Info
@@ -553,6 +554,35 @@ fun SettingsScreen(
                         "拿不准的会直接说不知道。需要查最新资料时，回答下方有「在浏览器里搜索」。",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            // ================= 转写语言 =================
+            SettingsSection(
+                icon = Icons.Default.Translate,
+                title = "转写语言",
+                subtitle = "告诉云端转写这段音频说的是哪种语言"
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(
+                        "中文" to "zh",
+                        "英文" to "en",
+                        "自动" to ""
+                    ).forEach { (label, code) ->
+                        FilterChip(
+                            selected = settings.cloudAsrLanguage == code,
+                            onClick = { viewModel.setCloudAsrLanguage(code) },
+                            label = { Text(label) }
+                        )
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
+                CommittedTextField(
+                    label = "语言代码",
+                    initial = settings.cloudAsrLanguage,
+                    placeholder = "如 ja、ko；留空表示交给服务端判断",
+                    supporting = "云端接口使用 ISO-639-1 代码。本地离线识别仍按系统语言设置。",
+                    onCommit = viewModel::setCloudAsrLanguage
                 )
             }
 

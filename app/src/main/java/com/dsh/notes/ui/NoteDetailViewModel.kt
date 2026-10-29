@@ -117,8 +117,20 @@ class NoteDetailViewModel(
                     transcript = current.transcript.replace(from, to)
                 )
             }
-            _suspects.value = _suspects.value.filterNot { it.word == from }
+            val remaining = _suspects.value.filterNot { it.word == from }
+            _suspects.value = remaining
+            // 全部确认完了：问一句要不要用改过的文本重新整理
+            if (remaining.isEmpty()) _askReorganize.value = true
         }
+    }
+
+    private val _askReorganize = MutableStateFlow(false)
+
+    /** 可疑词全部确认后，提示「是否用新文本重新整理」 */
+    val askReorganize: StateFlow<Boolean> = _askReorganize.asStateFlow()
+
+    fun dismissReorganize() {
+        _askReorganize.value = false
     }
 
     fun dismissSuspect(word: String) {
@@ -213,6 +225,32 @@ class NoteDetailViewModel(
     fun refresh() {
         viewModelScope.launch {
             container.repository.get(noteId)?.let { refreshAudio(it) }
+        }
+    }
+
+    /**
+     * 只删音频，不动笔记正文。
+     *
+     * 这是不可撤销的操作，界面上必须先弹二次确认；
+     * 删完把 audioPath 置空并刷新播放器状态，界面会显示「录音文件已清理」。
+     */
+    fun deleteAudio() {
+        viewModelScope.launch {
+            val current = container.repository.get(noteId) ?: return@launch
+            val path = current.audioPath
+            if (path.isNullOrBlank()) {
+                _message.value = "这条笔记没有音频文件"
+                return@launch
+            }
+            val deleted = withContext(Dispatchers.IO) {
+                runCatching { File(path).delete() }.getOrDefault(false)
+            }
+            container.repository.patch(noteId) {
+                it.copy(audioPath = null, audioDurationMs = 0L)
+            }
+            val updated = container.repository.get(noteId) ?: current
+            refreshAudio(updated)
+            _message.value = if (deleted) "音频已删除，正文保留" else "音频文件已不存在，已清理记录"
         }
     }
 

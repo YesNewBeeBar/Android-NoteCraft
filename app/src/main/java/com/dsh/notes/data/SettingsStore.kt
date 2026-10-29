@@ -160,6 +160,9 @@ data class AppSettings(
     /** 自定义图案的文件路径；空表示用内置麦克风图标 */
     val floatingBallIconPath: String = "",
 
+    /** 云端转写的语言代码：zh / en / …；留空表示不发送该参数，交给服务端判断 */
+    val cloudAsrLanguage: String = "zh",
+
     // ---------- 大肥鱼（AI 问答）----------
     /** 助手名字，默认「大肥鱼」 */
     val fishName: String = "大肥鱼",
@@ -245,6 +248,7 @@ class SettingsStore(private val context: Context) {
         val floatingBallSize = stringPreferencesKey("floating_ball_size")
         val floatingBallAlpha = stringPreferencesKey("floating_ball_alpha")
         val floatingBallIconPath = stringPreferencesKey("floating_ball_icon_path")
+        val cloudAsrLanguage = stringPreferencesKey("cloud_asr_language")
         val fishName = stringPreferencesKey("fish_name")
         val fishBaseUrl = stringPreferencesKey("fish_base_url")
         val fishApiKey = stringPreferencesKey("fish_api_key_enc")
@@ -292,6 +296,7 @@ class SettingsStore(private val context: Context) {
             floatingBallSizeDp = (prefs[Keys.floatingBallSize] ?: "56").toIntOrNull() ?: 56,
             floatingBallAlpha = (prefs[Keys.floatingBallAlpha] ?: "0.9").toFloatOrNull() ?: 0.9f,
             floatingBallIconPath = prefs[Keys.floatingBallIconPath] ?: "",
+            cloudAsrLanguage = prefs[Keys.cloudAsrLanguage] ?: "zh",
             fishName = prefs[Keys.fishName]?.takeIf { it.isNotBlank() } ?: "大肥鱼",
             fishBaseUrl = prefs[Keys.fishBaseUrl] ?: "",
             fishApiKey = CryptoUtils.decrypt(prefs[Keys.fishApiKey] ?: ""),
@@ -359,6 +364,8 @@ class SettingsStore(private val context: Context) {
     suspend fun setFloatingBallAlpha(alpha: Float) = put(Keys.floatingBallAlpha, alpha.toString())
 
     suspend fun setFloatingBallIconPath(path: String) = put(Keys.floatingBallIconPath, path)
+
+    suspend fun setCloudAsrLanguage(value: String) = put(Keys.cloudAsrLanguage, value.trim())
 
     suspend fun setFishName(value: String) = put(Keys.fishName, value.trim().ifBlank { "大肥鱼" })
 

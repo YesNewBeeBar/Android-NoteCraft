@@ -42,6 +42,11 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
 
     val localEngineAvailable: Boolean = LocalTranscriber(container.context).isAvailable
 
+    // ---------------------------------------------------------------- 转写语言
+
+    fun setCloudAsrLanguage(value: String) =
+        viewModelScope.launch { container.settings.setCloudAsrLanguage(value) }
+
     // ---------------------------------------------------------------- 大肥鱼
 
     fun setFishName(value: String) = viewModelScope.launch { container.settings.setFishName(value) }

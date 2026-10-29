@@ -143,7 +143,7 @@ class NotePipeline(
                 model = settings.asrModel,
                 file = cacheFile,
                 filename = displayName,
-                language = settings.languageTag()
+                language = settings.cloudLanguageTag()
             )
 
             val stored = moveToAudioDir(noteId, cacheFile, displayName)
@@ -276,7 +276,7 @@ class NotePipeline(
             apiKey = settings.asrApiKey,
             model = settings.asrModel,
             file = file,
-            language = settings.languageTag(),
+            language = settings.cloudLanguageTag(),
             prompt = PromptBuilder.asrPrompt(settings)
         )
 
@@ -560,3 +560,6 @@ sealed interface AudioFileState {
 
 /** 设置里的语言标签：空串表示交给服务端自动判断 */
 fun AppSettings.languageTag(): String? = localAsrLanguage.trim().takeIf { it.isNotBlank() }
+
+/** 云端转写用 ISO-639-1（zh / en），和本地识别的 zh-CN 不是一套 */
+fun AppSettings.cloudLanguageTag(): String? = cloudAsrLanguage.trim().takeIf { it.isNotBlank() }
