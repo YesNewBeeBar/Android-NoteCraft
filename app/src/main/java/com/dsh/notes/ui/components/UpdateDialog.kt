@@ -5,7 +5,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.AlertDialog
@@ -70,12 +73,15 @@ fun UpdateDialog(
                     )
                 } else if (info.notes.isNotBlank()) {
                     Spacer(Modifier.height(10.dp))
+                    // 更新日志可能很长：限定高度并可上下滑动，避免显示不全
                     Text(
                         text = info.notes,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 12,
-                        overflow = TextOverflow.Ellipsis
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 280.dp)
+                            .verticalScroll(rememberScrollState())
                     )
                 }
             }

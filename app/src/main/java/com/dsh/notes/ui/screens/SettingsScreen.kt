@@ -515,8 +515,8 @@ fun SettingsScreen(
             // ================= 大肥鱼 =================
             SettingsSection(
                 icon = Icons.Default.SmartToy,
-                title = "大肥鱼（AI 问答）",
-                subtitle = "笔记页那个机器人球后面的助手"
+                title = "AI 问答",
+                subtitle = "AI 笔记助手"
             ) {
                 CommittedTextField(
                     label = "名字",

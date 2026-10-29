@@ -519,7 +519,7 @@ private fun LiveCaptionToggle(
         )
         Text(
             text = when {
-                !enabled -> "关着的话录成 m4a，省空间（1 小时约 14MB）"
+                !enabled -> "使用 m4a 格式，省空间（1 小时约 14MB）"
                 !cloudReady -> "已开启，但云转写还没配好，暂时不会生效"
                 else -> "开启后必须录成 WAV（切片要原始音频流）"
             },

@@ -74,7 +74,7 @@ import com.dsh.notes.data.Folder
 import com.dsh.notes.data.Note
 import com.dsh.notes.ui.FishAiViewModel
 import com.dsh.notes.ui.FishReference
-import com.dsh.notes.ui.markdown.MarkdownText
+import com.dsh.notes.ui.markdown.MarkdownBody
 import com.dsh.notes.util.formatDateTime
 import com.dsh.notes.util.openWebSearch
 
@@ -178,7 +178,18 @@ fun FishAiScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     items(items = messages, key = { it.id }) { message ->
-                        MessageBubble(message = message, name = fishName)
+                        // 搜索要用「用户当时问的那句话」，而不是 AI 的回答：
+                        // 回答里全是 Markdown 标题，拿去搜索只会搜到一堆 # 号
+                        val query = if (message.fromUser) {
+                            ""
+                        } else {
+                            messages
+                                .takeWhile { it.id != message.id }
+                                .lastOrNull { it.fromUser }
+                                ?.content
+                                .orEmpty()
+                        }
+                        MessageBubble(message = message, name = fishName, searchQuery = query)
                     }
                     if (streaming != null) {
                         item(key = "streaming") {
@@ -373,7 +384,7 @@ private fun FishEmptyState(
 }
 
 @Composable
-private fun MessageBubble(message: ChatMessage, name: String) {
+private fun MessageBubble(message: ChatMessage, name: String, searchQuery: String) {
     if (message.fromUser) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             Surface(
@@ -404,8 +415,8 @@ private fun MessageBubble(message: ChatMessage, name: String) {
                 )
             ) {
                 Column(modifier = Modifier.padding(12.dp)) {
-                    MarkdownText(markdown = message.content)
-                    BrowserSearchRow(question = message.content)
+                    MarkdownBody(markdown = message.content)
+                    BrowserSearchRow(query = searchQuery)
                 }
             }
         }
@@ -435,7 +446,7 @@ private fun StreamingBubble(text: String, name: String) {
                         Text("正在翻你的笔记…", style = MaterialTheme.typography.bodySmall)
                     }
                 } else {
-                    MarkdownText(markdown = text)
+                    MarkdownBody(markdown = text)
                 }
             }
         }
@@ -444,10 +455,17 @@ private fun StreamingBubble(text: String, name: String) {
 
 /** 每条回答下面给一个「去浏览器搜」的出口 —— 没联网能力时这是最诚实的选择 */
 @Composable
-private fun BrowserSearchRow(question: String) {
+private fun BrowserSearchRow(query: String) {
     val context = LocalContext.current
+    // 去掉 Markdown 标题行，只留正文里的话
+    val clean = query.lineSequence()
+        .filterNot { it.trimStart().startsWith("#") }
+        .joinToString(" ")
+        .trim()
+    if (clean.isBlank()) return
+
     TextButton(
-        onClick = { openWebSearch(context, question.take(80)) },
+        onClick = { openWebSearch(context, clean.take(80)) },
         contentPadding = PaddingValues(horizontal = 0.dp, vertical = 0.dp)
     ) {
         Text("在浏览器里搜索这个问题", style = MaterialTheme.typography.labelSmall)
@@ -491,7 +509,7 @@ private fun InputBar(
                     value = value,
                     onValueChange = onValueChange,
                     modifier = Modifier.weight(1f),
-                    placeholder = { Text(if (reference.isEmpty) "问点什么…（默认参考全部笔记）" else "问点什么…") },
+                    placeholder = { Text("问点什么") },
                     maxLines = 5,
                     shape = RoundedCornerShape(20.dp)
                 )

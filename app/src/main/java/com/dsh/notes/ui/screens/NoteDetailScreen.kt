@@ -88,7 +88,7 @@ import com.dsh.notes.ui.Suspect
 import com.dsh.notes.ui.components.KeepScreenOn
 import com.dsh.notes.ui.components.StatusChip
 import com.dsh.notes.ui.components.WaveformView
-import com.dsh.notes.ui.markdown.MarkdownText
+import com.dsh.notes.ui.markdown.MarkdownBody
 import com.dsh.notes.util.NoteSharing
 import com.dsh.notes.util.copyToClipboard
 import com.dsh.notes.util.formatDateTime
@@ -437,16 +437,7 @@ fun NoteDetailScreen(
             }
 
             if (current.tags().isNotEmpty()) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    current.tags().take(6).forEach { tag ->
-                        AssistChip(onClick = {}, label = { Text(tag) })
-                    }
-                }
+                TagRow(tags = current.tags())
             }
 
             Spacer(Modifier.height(14.dp))
@@ -508,7 +499,7 @@ fun NoteDetailScreen(
                             modifier = Modifier.padding(bottom = 6.dp)
                         )
                     }
-                    MarkdownText(markdown = body, modifier = Modifier.fillMaxWidth())
+                    MarkdownBody(markdown = body, modifier = Modifier.fillMaxWidth())
                 }
 
                 // 整理结果之外，把原始转写折叠起来备查
@@ -888,6 +879,38 @@ private fun AudioSection(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+        }
+    }
+}
+
+/**
+ * 标签行。
+ *
+ * 以前是普通 Row：标签一多放不下就挤压子项，最后一个 chip 被压成一条、
+ * 里面的文字被迫折行，于是高度参差不齐。这里改成可换行的 FlowRow，
+ * 并强制标签单行显示，所有 chip 高度一致。
+ */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun TagRow(tags: List<String>) {
+    androidx.compose.foundation.layout.FlowRow(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        tags.forEach { tag ->
+            AssistChip(
+                onClick = {},
+                label = {
+                    Text(
+                        text = tag,
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
+            )
         }
     }
 }

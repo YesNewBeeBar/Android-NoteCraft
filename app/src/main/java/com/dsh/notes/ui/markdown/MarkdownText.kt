@@ -1,24 +1,37 @@
 package com.dsh.notes.ui.markdown
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -28,6 +41,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import com.dsh.notes.util.copyToClipboard
 
 /**
  * 轻量 Markdown 渲染器。
@@ -48,6 +62,7 @@ object MarkdownParser {
         data class Ordered(val text: String, val indent: Int, val number: String) : Block
         data class Quote(val text: String) : Block
         data class Code(val language: String, val body: String) : Block
+        data class Table(val header: List<String>, val rows: List<List<String>>) : Block
         data class Paragraph(val text: String) : Block
         data object Divider : Block
         data object Blank : Block
@@ -57,6 +72,15 @@ object MarkdownParser {
     private val bulletRegex = Regex("^(\\s*)[-*+]\\s+(.*)$")
     private val orderedRegex = Regex("^(\\s*)(\\d+)[.)]\\s+(.*)$")
     private val todoRegex = Regex("^\\[([ xX])]\\s+(.*)$")
+
+    /** 表格的分隔行：|---|:--:|---| */
+    private val tableSeparator = Regex("^\\|?\\s*:?-{2,}:?\\s*(\\|\\s*:?-{2,}:?\\s*)*\\|?$")
+
+    private fun isTableRow(line: String): Boolean = line.trim().startsWith("|")
+
+    private fun splitRow(line: String): List<String> =
+        line.trim().trim('|').split('|').map { it.trim() }
+
 
     fun parse(source: String): List<Block> {
         val blocks = mutableListOf<Block>()
@@ -78,6 +102,22 @@ object MarkdownParser {
                 }
                 index++ // 跳过收尾的 ```
                 blocks += Block.Code(language, body.toString().trimEnd())
+                continue
+            }
+
+            // 表格：当前行是 |...| 且下一行是分隔行
+            if (isTableRow(trimmed) &&
+                index + 1 < lines.size &&
+                tableSeparator.matches(lines[index + 1].trim())
+            ) {
+                val header = splitRow(trimmed)
+                index += 2
+                val rows = mutableListOf<List<String>>()
+                while (index < lines.size && isTableRow(lines[index])) {
+                    rows += splitRow(lines[index])
+                    index++
+                }
+                blocks += Block.Table(header, rows)
                 continue
             }
 
@@ -189,8 +229,27 @@ object MarkdownParser {
 fun MarkdownText(
     markdown: String,
     modifier: Modifier = Modifier,
+    /** true 时整段可选词复制（笔记详情、大肥鱼回答用） */
+    selectable: Boolean = false,
+    /** 代码块「下载」交给调用方决定存哪 */
+    onDownloadSnippet: ((language: String, body: String) -> Unit)? = null,
 ) {
     val blocks = remember(markdown) { MarkdownParser.parse(markdown) }
+    if (selectable) {
+        SelectionContainer(modifier = modifier) {
+            MarkdownBlocks(blocks = blocks, onDownloadSnippet = onDownloadSnippet)
+        }
+    } else {
+        MarkdownBlocks(blocks = blocks, onDownloadSnippet = onDownloadSnippet, modifier = modifier)
+    }
+}
+
+@Composable
+private fun MarkdownBlocks(
+    blocks: List<MarkdownParser.Block>,
+    onDownloadSnippet: ((language: String, body: String) -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
     val colors = MaterialTheme.colorScheme
 
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -253,21 +312,13 @@ fun MarkdownText(
                     )
                 }
 
-                is MarkdownParser.Block.Code -> Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(colors.surfaceVariant.copy(alpha = 0.5f))
-                        .padding(10.dp)
-                ) {
-                    Text(
-                        text = block.body,
-                        style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
-                        color = colors.onSurface,
-                        modifier = Modifier.horizontalScroll(rememberScrollState())
-                    )
-                }
+                is MarkdownParser.Block.Code -> CodeBlock(
+                    language = block.language,
+                    body = block.body,
+                    onDownload = onDownloadSnippet
+                )
+
+                is MarkdownParser.Block.Table -> TableBlock(block)
 
                 is MarkdownParser.Block.Divider -> HorizontalDivider(
                     modifier = Modifier.padding(vertical = 8.dp),
@@ -292,8 +343,7 @@ private fun MarkdownRow(
     marker: String,
     indent: Int,
     text: String,
-) {
-    Row(
+) {    Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(start = (indent * 14).dp, top = 1.dp, bottom = 1.dp),
@@ -312,3 +362,184 @@ private fun MarkdownRow(
         )
     }
 }
+
+/** 代码块：头部条（语言 + 复制 + 下载）+ 轻量高亮 */
+@Composable
+private fun CodeBlock(
+    language: String,
+    body: String,
+    onDownload: ((String, String) -> Unit)?
+) {
+    val context = LocalContext.current
+    val colors = MaterialTheme.colorScheme
+    val scroll = rememberScrollState()
+    val highlighted = remember(body, colors) { highlightCode(body, colors) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(colors.surfaceVariant.copy(alpha = 0.45f))
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(colors.surfaceVariant.copy(alpha = 0.75f))
+                .padding(start = 12.dp, end = 4.dp, top = 2.dp, bottom = 2.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = language.ifBlank { "text" },
+                style = MaterialTheme.typography.labelSmall,
+                color = colors.onSurfaceVariant,
+                modifier = Modifier.weight(1f)
+            )
+            TextButton(
+                onClick = { copyToClipboard(context, "代码", body) },
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.ContentCopy,
+                    contentDescription = null,
+                    modifier = Modifier.size(14.dp)
+                )
+                Spacer(Modifier.width(4.dp))
+                Text("复制", style = MaterialTheme.typography.labelSmall)
+            }
+            TextButton(
+                onClick = { onDownload?.invoke(language, body) },
+                enabled = onDownload != null,
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Download,
+                    contentDescription = null,
+                    modifier = Modifier.size(14.dp)
+                )
+                Spacer(Modifier.width(4.dp))
+                Text("下载", style = MaterialTheme.typography.labelSmall)
+            }
+        }
+        Text(
+            text = highlighted,
+            style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+            color = colors.onSurface,
+            modifier = Modifier
+                .horizontalScroll(scroll)
+                .padding(12.dp)
+        )
+    }
+}
+
+/** 表格：整表横向滚动，外边框 + 行分隔线 + 表头底色 */
+@Composable
+private fun TableBlock(block: MarkdownParser.Block.Table) {
+    val colors = MaterialTheme.colorScheme
+    val scroll = rememberScrollState()
+    val columnCount = maxOf(
+        block.header.size,
+        block.rows.maxOfOrNull { it.size } ?: 0
+    )
+    if (columnCount == 0) return
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(scroll)
+            .padding(vertical = 6.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .clip(RoundedCornerShape(8.dp))
+                .border(1.dp, colors.outlineVariant, RoundedCornerShape(8.dp))
+        ) {
+            TableCells(block.header, columnCount, header = true)
+            block.rows.forEachIndexed { index, row ->
+                HorizontalDivider(color = colors.outlineVariant)
+                TableCells(row, columnCount, header = false, striped = index % 2 == 1)
+            }
+        }
+    }
+}
+
+@Composable
+private fun TableCells(
+    cells: List<String>,
+    columnCount: Int,
+    header: Boolean,
+    striped: Boolean = false
+) {
+    val colors = MaterialTheme.colorScheme
+    Row(
+        modifier = Modifier.background(
+            when {
+                header -> colors.surfaceVariant.copy(alpha = 0.7f)
+                striped -> colors.surfaceVariant.copy(alpha = 0.22f)
+                else -> Color.Transparent
+            }
+        )
+    ) {
+        for (index in 0 until columnCount) {
+            val text = cells.getOrElse(index) { "" }
+            Text(
+                text = MarkdownParser.inline(text),
+                style = if (header) {
+                    MaterialTheme.typography.labelLarge
+                } else {
+                    MaterialTheme.typography.bodyMedium
+                },
+                color = colors.onSurface,
+                fontWeight = if (header) FontWeight.SemiBold else null,
+                modifier = Modifier
+                    .widthIn(min = 92.dp, max = 220.dp)
+                    .padding(horizontal = 10.dp, vertical = 8.dp)
+            )
+        }
+    }
+}
+
+/**
+ * 极简高亮：注释 / 字符串 / 数字 / 关键字。
+ * 不做语法树，够读就行；颜色全部取自主题，深浅色都跟着变。
+ */
+private fun highlightCode(code: String, colors: androidx.compose.material3.ColorScheme): AnnotatedString {
+    val keywordStyle = SpanStyle(color = colors.primary, fontWeight = FontWeight.SemiBold)
+    val stringStyle = SpanStyle(color = colors.tertiary)
+    val commentStyle = SpanStyle(
+        color = colors.onSurfaceVariant.copy(alpha = 0.75f),
+        fontStyle = FontStyle.Italic
+    )
+    val numberStyle = SpanStyle(color = colors.secondary)
+
+    val pattern = Regex(
+        "(//[^\\n]*|#[^\\n]*|/\\*[\\s\\S]*?\\*/)" +
+            "|(\"(?:[^\"\\\\]|\\\\.)*\"|'(?:[^'\\\\]|\\\\.)*')" +
+            "|\\b(\\d+(?:\\.\\d+)?)\\b" +
+            "|\\b($KEYWORDS)\\b"
+    )
+
+    return buildAnnotatedString {
+        var cursor = 0
+        pattern.findAll(code).forEach { match ->
+            if (match.range.first > cursor) {
+                append(code.substring(cursor, match.range.first))
+            }
+            val style = when {
+                match.groups[1] != null -> commentStyle
+                match.groups[2] != null -> stringStyle
+                match.groups[3] != null -> numberStyle
+                else -> keywordStyle
+            }
+            withStyle(style) { append(match.value) }
+            cursor = match.range.last + 1
+        }
+        if (cursor < code.length) append(code.substring(cursor))
+    }
+}
+
+private const val KEYWORDS =
+    "fun|val|var|if|else|for|while|return|class|object|interface|import|package|true|false|null|" +
+        "this|when|is|in|new|public|private|protected|static|final|void|int|long|float|double|" +
+        "boolean|def|let|const|function|async|await|try|catch|finally|throw|break|continue|" +
+        "switch|case|default|struct|enum|impl|fn|mut|pub|use|mod"

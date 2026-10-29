@@ -41,11 +41,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.dsh.notes.ui.NoteCraftViewModelFactory
 import com.dsh.notes.ui.SettingsViewModel
+import com.dsh.notes.util.copyToClipboard
 
 /**
  * 提示词页（设置页右上角进入）。
@@ -299,11 +301,18 @@ private fun TemplateDetail(templateId: String, viewModel: SettingsViewModel) {
         )
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
-            Text(
-                text = "${template.name} · ${template.description}",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onPrimaryContainer
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "${template.name} · ${template.description}",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.weight(1f)
+                )
+                val context = LocalContext.current
+                TextButton(onClick = { copyToClipboard(context, "提示词", template.prompt) }) {
+                    Text("复制", style = MaterialTheme.typography.labelSmall)
+                }
+            }
             Spacer(Modifier.height(6.dp))
             Text(
                 text = template.prompt,
