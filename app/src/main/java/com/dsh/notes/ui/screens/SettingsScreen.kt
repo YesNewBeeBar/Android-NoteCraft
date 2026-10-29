@@ -767,6 +767,21 @@ fun SettingsScreen(
                 title = "关于与自检",
                 subtitle = "排查用"
             ) {
+                // 版本 + 安装时间：用来确认"我装的到底是哪一版"
+                val installedAt = remember(context) {
+                    runCatching {
+                        val info = context.packageManager.getPackageInfo(context.packageName, 0)
+                        java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.getDefault())
+                            .format(java.util.Date(info.lastUpdateTime))
+                    }.getOrDefault("未知")
+                }
+                Text(
+                    text = "版本 ${com.dsh.notes.BuildConfig.VERSION_NAME}" +
+                        "（${com.dsh.notes.BuildConfig.VERSION_CODE}）· 安装于 $installedAt",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(Modifier.height(8.dp))
                 Text(
                     text = buildString {
                         appendLine("· 转写与整理都走 HTTP 接口，音频和文字会发送给你配置的服务商。")
