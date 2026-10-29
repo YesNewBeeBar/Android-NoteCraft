@@ -32,6 +32,16 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.ui.draw.rotate
+import androidx.compose.animation.fadeOut
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedButton
@@ -558,6 +568,7 @@ private fun LiveCaptionPanel(
     }
     var fullScreen by remember { mutableStateOf(false) }
     var confirmAbandon by remember { mutableStateOf(false) }
+    var expanded by remember { mutableStateOf(false) }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -622,41 +633,74 @@ private fun LiveCaptionPanel(
                     }
                     HorizontalDivider()
                     Spacer(Modifier.height(12.dp))
-                    AutoFollowText(text = text, modifier = Modifier.weight(1f))
 
-                    // 底部操作栏：从底部滑出，全屏看上屏时也能直接控制录音
-                    AnimatedVisibility(
-                        visible = true,
-                        enter = slideInVertically(initialOffsetY = { it }) + fadeIn()
-                    ) {
+                    Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                        AutoFollowText(text = text, modifier = Modifier.fillMaxSize())
+
+                        // 右下角圆钮：点开从左边依次伸出三个操作
+                        val rotation by animateFloatAsState(
+                            targetValue = if (expanded) 45f else 0f,
+                            animationSpec = tween(220) , label = "caption-fab-rotation"
+                        )
                         Row(
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 10.dp),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                                .align(Alignment.BottomEnd)
+                                .padding(bottom = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Button(
-                                onClick = {
+                            listOf(
+                                Triple("结束", Icons.Default.Stop) {
                                     onStop()
                                     fullScreen = false
                                 },
-                                modifier = Modifier.weight(1f)
-                            ) { Text("结束") }
+                                Triple(if (paused) "继续" else "暂停", if (paused) Icons.Default.PlayArrow else Icons.Default.Pause) {
+                                    if (paused) onResume() else onPause()
+                                },
+                                Triple("放弃", Icons.Default.Delete) {
+                                    confirmAbandon = true
+                                }
+                            ).forEachIndexed { index, (label, icon, action) ->
+                                AnimatedVisibility(
+                                    visible = expanded,
+                                    enter = fadeIn(tween(120, delayMillis = index * 45)) +
+                                        slideInHorizontally(tween(220, delayMillis = index * 45)) { it / 2 },
+                                    exit = fadeOut(tween(70)) +
+                                        slideOutHorizontally(tween(120)) { it / 2 }
+                                ) {
+                                    ExtendedFloatingActionButton(
+                                        onClick = {
+                                            expanded = false
+                                            action()
+                                        },
+                                        icon = { Icon(icon, contentDescription = null) },
+                                        text = { Text(label) },
+                                        containerColor = if (label == "放弃") {
+                                            MaterialTheme.colorScheme.errorContainer
+                                        } else {
+                                            MaterialTheme.colorScheme.surfaceVariant
+                                        },
+                                        contentColor = if (label == "放弃") {
+                                            MaterialTheme.colorScheme.onErrorContainer
+                                        } else {
+                                            MaterialTheme.colorScheme.onSurfaceVariant
+                                        }
+                                    )
+                                }
+                            }
 
-                            OutlinedButton(
-                                onClick = { if (paused) onResume() else onPause() },
-                                modifier = Modifier.weight(1f)
-                            ) { Text(if (paused) "继续" else "暂停") }
-
-                            OutlinedButton(
-                                onClick = { confirmAbandon = true },
-                                modifier = Modifier.weight(1f),
-                                colors = ButtonDefaults.outlinedButtonColors(
-                                    contentColor = MaterialTheme.colorScheme.error,
-                                    disabledContentColor = MaterialTheme.colorScheme.error.copy(alpha = 0.5f)
+                            FloatingActionButton(
+                                onClick = { expanded = !expanded },
+                                shape = CircleShape,
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Add,
+                                    contentDescription = if (expanded) "收起操作" else "展开操作",
+                                    modifier = Modifier.rotate(rotation)
                                 )
-                            ) { Text("放弃") }
+                            }
                         }
                     }
                 }
