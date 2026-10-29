@@ -75,6 +75,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -221,10 +223,21 @@ fun RecordingScreen(
 
             // 实时上屏：录音中、开着、而且这次确实是 PCM（m4a 拿不到流，没得上屏）
             if (state.isRecording && settings.liveCaptionEnabled && !state.compressed) {
+                // 对话框里拿不到系统栏 inset（Dialog 的 inset 常常是 0），
+                // 所以从主窗口读真实高度传进去，否则内容会被导航栏压住。
+                val rootInsets = LocalView.current.rootWindowInsets
+                val statusBarDp = with(LocalDensity.current) {
+                    (rootInsets?.getInsets(android.view.WindowInsets.Type.statusBars())?.top ?: 0).toDp()
+                }
+                val navBarDp = with(LocalDensity.current) {
+                    (rootInsets?.getInsets(android.view.WindowInsets.Type.navigationBars())?.bottom ?: 0).toDp()
+                }
                 LiveCaptionPanel(
                     finalized = state.finalizedText,
                     partial = state.partialText,
                     paused = state.phase == RecorderPhase.PAUSED,
+                    topInset = statusBarDp,
+                    bottomInset = navBarDp,
                     onStop = { viewModel.stopRecording() },
                     onPause = { viewModel.pauseRecording() },
                     onResume = { viewModel.resumeRecording() },
@@ -557,6 +570,8 @@ private fun LiveCaptionPanel(
     finalized: String,
     partial: String,
     paused: Boolean,
+    topInset: Dp,
+    bottomInset: Dp,
     onStop: () -> Unit,
     onPause: () -> Unit,
     onResume: () -> Unit,
@@ -623,9 +638,17 @@ private fun LiveCaptionPanel(
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        // targetSdk 35 在 Android 15 上强制 edge-to-edge，
-                        // Dialog 不自己处理 inset，内容会画到导航栏下面 —— 最后一行就看不见了
-                        .safeDrawingPadding()
+                        /*
+                         * Dialog 里的系统栏 inset 往往拿不到（返回 0），
+                         * 所以这里用主窗口量出来的真实高度手动留白：
+                         *   top    = 状态栏
+                         *   bottom = 导航栏 + 一点余量
+                         * 手势导航的细横条也压在这一段里，留够就不会被切。
+                         */
+                        .padding(
+                            top = topInset,
+                            bottom = bottomInset + 14.dp
+                        )
                         .padding(horizontal = 18.dp, vertical = 12.dp)
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
