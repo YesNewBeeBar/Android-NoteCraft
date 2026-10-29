@@ -40,6 +40,14 @@ import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.SmallFloatingActionButton
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.ui.res.painterResource
+import com.dsh.notes.R
+import com.dsh.notes.ui.FishReference
+import com.dsh.notes.ui.screens.FishAiScreen
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
@@ -107,7 +115,9 @@ import kotlinx.coroutines.delay
 fun NoteDetailScreen(
     noteId: Long,
     viewModelFactory: NoteCraftViewModelFactory,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    /** 半屏问答里点「全屏继续」时用 */
+    onOpenFishFull: () -> Unit = {}
 ) {
     val viewModel: NoteDetailViewModel = viewModel(
         factory = viewModelFactory.forNote(noteId),
@@ -123,6 +133,10 @@ fun NoteDetailScreen(
     val suspects by viewModel.suspects.collectAsStateWithLifecycle()
     val checking by viewModel.checking.collectAsStateWithLifecycle()
     val askReorganize by viewModel.askReorganize.collectAsStateWithLifecycle()
+
+    // 与大肥鱼全屏页共用同一个 ViewModel（同一个会话）
+    val fishViewModel: com.dsh.notes.ui.FishAiViewModel = viewModel(factory = viewModelFactory)
+    var showFishSheet by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
     val snackbar = remember { SnackbarHostState() }
@@ -313,7 +327,25 @@ fun NoteDetailScreen(
                 }
             )
         },
-        snackbarHost = { SnackbarHost(snackbar) }
+        snackbarHost = { SnackbarHost(snackbar) },
+        floatingActionButton = {
+            // 整篇提问：把这条笔记当成参考，起一个半屏问答
+            SmallFloatingActionButton(
+                onClick = {
+                    fishViewModel.setReference(FishReference(noteIds = setOf(noteId)))
+                    showFishSheet = true
+                },
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_fish_robot),
+                    contentDescription = "问大肥鱼",
+                    tint = androidx.compose.ui.graphics.Color.Unspecified,
+                    modifier = Modifier.size(26.dp)
+                )
+            }
+        }
     ) { padding ->
         val current = note
         if (current == null) {
@@ -651,6 +683,26 @@ fun NoteDetailScreen(
         )
     }
 
+    // 半屏问答：同一个会话，可升全屏
+    if (showFishSheet) {
+        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ModalBottomSheet(
+            onDismissRequest = { showFishSheet = false },
+            sheetState = sheetState
+        ) {
+            Box(modifier = Modifier.fillMaxHeight(0.88f)) {
+                FishAiScreen(
+                    viewModel = fishViewModel,
+                    onClose = { showFishSheet = false },
+                    onExpand = {
+                        showFishSheet = false
+                        onOpenFishFull()
+                    },
+                    compact = true
+                )
+            }
+        }
+    }
     // 可疑词全部确认完了：问一句要不要用改过的文本重新整理
     if (askReorganize) {
         AlertDialog(
@@ -670,8 +722,7 @@ fun NoteDetailScreen(
     }
 
     // 删除音频二次确认
-    if (showDeleteAudioDialog) {
-        AlertDialog(
+    if (showDeleteAudioDialog) {        AlertDialog(
             onDismissRequest = { showDeleteAudioDialog = false },
             title = { Text("删除音频文件？") },
             text = { Text("只删除录音，笔记正文与转写文字保留。此操作不可撤销。") },

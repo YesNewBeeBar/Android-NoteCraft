@@ -228,7 +228,8 @@ fun NoteCraftApp(
                     NoteDetailScreen(
                         noteId = noteId,
                         viewModelFactory = viewModelFactory,
-                        onBack = { navController.popBackStack() }
+                        onBack = { navController.popBackStack() },
+                        onOpenFishFull = { mainViewModel.openFish() }
                     )
                 }
             }

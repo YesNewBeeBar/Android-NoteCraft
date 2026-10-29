@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.OpenInFull
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.AssistChip
@@ -88,7 +89,11 @@ import com.dsh.notes.util.openWebSearch
 @Composable
 fun FishAiScreen(
     viewModel: FishAiViewModel,
-    onClose: () -> Unit
+    onClose: () -> Unit,
+    /** 半屏面板里传入：点它升到全屏（同一个会话） */
+    onExpand: (() -> Unit)? = null,
+    /** 半屏面板里高度有限，隐藏示例问题区 */
+    compact: Boolean = false
 ) {
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val messages by viewModel.messages.collectAsStateWithLifecycle()
@@ -149,6 +154,11 @@ fun FishAiScreen(
                 },
                 title = { Text(fishName) },
                 actions = {
+                    if (onExpand != null) {
+                        IconButton(onClick = onExpand) {
+                            Icon(Icons.Default.OpenInFull, contentDescription = "全屏继续")
+                        }
+                    }
                     IconButton(onClick = { showHistory = true }, enabled = !sending) {
                         Icon(Icons.Default.History, contentDescription = "历史对话")
                     }
@@ -164,7 +174,7 @@ fun FishAiScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            if (messages.isEmpty() && streaming == null) {
+            if (messages.isEmpty() && streaming == null && !compact) {
                 FishEmptyState(
                     name = fishName,
                     modifier = Modifier.weight(1f),

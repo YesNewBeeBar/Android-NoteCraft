@@ -610,7 +610,14 @@ private fun LiveCaptionPanel(
         // 真·全屏覆盖：这一段文字经常是唯一想盯着看的东西
         Dialog(
             onDismissRequest = { fullScreen = false },
-            properties = DialogProperties(usePlatformDefaultWidth = false)
+            // decorFitsSystemWindows = false：让对话框也边到边绘制，
+            // 这样里面的 safeDrawingPadding() 才能拿到真实的导航栏高度。
+            // 只设 usePlatformDefaultWidth 的话，Android 15 上有内容会跑到
+            // 导航栏下面 —— 右下角那个圆钮就被切掉一半。
+            properties = DialogProperties(
+                usePlatformDefaultWidth = false,
+                decorFitsSystemWindows = false
+            )
         ) {
             Surface(modifier = Modifier.fillMaxSize()) {
                 Column(
