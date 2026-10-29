@@ -104,6 +104,7 @@ fun FishAiScreen(
     val allNotes by viewModel.allNotes.collectAsStateWithLifecycle()
     val folders by viewModel.folders.collectAsStateWithLifecycle()
     val sessions by viewModel.sessions.collectAsStateWithLifecycle()
+    val prefill by viewModel.prefill.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
     val snackbar = remember { SnackbarHostState() }
@@ -112,6 +113,14 @@ fun FishAiScreen(
     var input by remember { mutableStateOf("") }
     var showReference by remember { mutableStateOf(false) }
     var showHistory by remember { mutableStateOf(false) }
+
+    // 划词提问：选中文字塞进输入框，等用户补完再发
+    LaunchedEffect(prefill) {
+        prefill?.let {
+            input = it
+            viewModel.consumePrefill()
+        }
+    }
 
     LaunchedEffect(error) {
         error?.let {
@@ -199,7 +208,12 @@ fun FishAiScreen(
                                 ?.content
                                 .orEmpty()
                         }
-                        MessageBubble(message = message, name = fishName, searchQuery = query)
+                        MessageBubble(
+                            message = message,
+                            name = fishName,
+                            searchQuery = query,
+                            onAsk = { text -> viewModel.prefillInput(text) }
+                        )
                     }
                     if (streaming != null) {
                         item(key = "streaming") {
@@ -394,7 +408,12 @@ private fun FishEmptyState(
 }
 
 @Composable
-private fun MessageBubble(message: ChatMessage, name: String, searchQuery: String) {
+private fun MessageBubble(
+    message: ChatMessage,
+    name: String,
+    searchQuery: String,
+    onAsk: (String) -> Unit
+) {
     if (message.fromUser) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             Surface(
@@ -425,7 +444,10 @@ private fun MessageBubble(message: ChatMessage, name: String, searchQuery: Strin
                 )
             ) {
                 Column(modifier = Modifier.padding(12.dp)) {
-                    MarkdownBody(markdown = message.content)
+                    MarkdownBody(
+                        markdown = message.content,
+                        onAskSelection = onAsk
+                    )
                     BrowserSearchRow(query = searchQuery)
                 }
             }

@@ -103,6 +103,18 @@ class FishAiViewModel(private val container: AppContainer) : ViewModel() {
     private val _error = MutableStateFlow<String?>(null)
 
     val error: StateFlow<String?> = _error.asStateFlow()
+    private val _prefill = MutableStateFlow<String?>(null)
+
+    /** 划词提问：把选中的文字塞进输入框，界面消费后调用 consumePrefill */
+    val prefill: StateFlow<String?> = _prefill.asStateFlow()
+
+    fun prefillInput(text: String) {
+        _prefill.value = text
+    }
+
+    fun consumePrefill() {
+        _prefill.value = null
+    }
 
     private var sessionId = 0L
     private var sendJob: Job? = null

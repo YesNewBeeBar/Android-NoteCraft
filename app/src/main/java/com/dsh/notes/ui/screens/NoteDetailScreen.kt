@@ -533,7 +533,14 @@ fun NoteDetailScreen(
                             modifier = Modifier.padding(bottom = 6.dp)
                         )
                     }
-                    MarkdownBody(markdown = body, modifier = Modifier.fillMaxWidth())
+                    MarkdownBody(
+                        markdown = body,
+                        modifier = Modifier.fillMaxWidth(),
+                        onAskSelection = { text ->
+                            fishViewModel.prefillInput(text)
+                            showFishSheet = true
+                        }
+                    )
                 }
 
                 // 整理结果之外，把原始转写折叠起来备查

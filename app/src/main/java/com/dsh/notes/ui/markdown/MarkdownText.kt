@@ -233,11 +233,15 @@ fun MarkdownText(
     selectable: Boolean = false,
     /** 代码块「下载」交给调用方决定存哪 */
     onDownloadSnippet: ((language: String, body: String) -> Unit)? = null,
+    /** 选中一段文字后点「AI 提问」把文字交给调用方 */
+    onAskSelection: ((String) -> Unit)? = null,
 ) {
     val blocks = remember(markdown) { MarkdownParser.parse(markdown) }
     if (selectable) {
-        SelectionContainer(modifier = modifier) {
-            MarkdownBlocks(blocks = blocks, onDownloadSnippet = onDownloadSnippet)
+        SelectionActionHost(onAsk = onAskSelection) {
+            SelectionContainer(modifier = modifier) {
+                MarkdownBlocks(blocks = blocks, onDownloadSnippet = onDownloadSnippet)
+            }
         }
     } else {
         MarkdownBlocks(blocks = blocks, onDownloadSnippet = onDownloadSnippet, modifier = modifier)

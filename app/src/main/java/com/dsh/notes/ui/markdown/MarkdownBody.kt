@@ -22,6 +22,7 @@ fun MarkdownBody(
     markdown: String,
     modifier: Modifier = Modifier,
     selectable: Boolean = true,
+    onAskSelection: ((String) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     var pending by remember { mutableStateOf<Pair<String, String>?>(null) }
@@ -44,6 +45,7 @@ fun MarkdownBody(
         markdown = markdown,
         modifier = modifier,
         selectable = selectable,
+        onAskSelection = onAskSelection,
         onDownloadSnippet = { language, body ->
             pending = language to body
             launcher.launch("snippet.${extensionOf(language)}")
