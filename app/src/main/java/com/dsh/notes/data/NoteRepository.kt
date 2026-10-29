@@ -20,6 +20,10 @@ class NoteRepository(
     /** 文件夹名；找不到返回 null（比如文件夹刚被删掉） */
     suspend fun folderName(id: Long): String? = folderDao.findById(id)?.name
 
+    /** 按名字找文件夹，找不到就建一个。导入 .md 时用来还原目录结构 */
+    suspend fun folderIdOrCreate(name: String): Long =
+        folderDao.findByName(name.trim())?.id ?: createFolder(name)
+
     suspend fun renameFolder(id: Long, name: String) = folderDao.rename(id, name.trim())
 
     /** 删文件夹不删笔记：里面的笔记统统回到「未分类」 */

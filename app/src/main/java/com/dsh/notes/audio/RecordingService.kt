@@ -10,6 +10,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
+import android.media.AudioFocusRequest
+import android.media.AudioManager
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
@@ -109,6 +111,11 @@ class RecordingService : Service() {
      */
     @Volatile
     private var stopping = false
+
+    /** 这次暂停是不是因为我们自己丢了音频焦点；只有这种情况才自动续录 */
+    private var autoPausedByFocusLoss = false
+
+    private var audioFocusRequest: AudioFocusRequest? = null
 
     private var audioFile: File? = null
     private var sampleRate = 16_000
@@ -241,6 +248,7 @@ class RecordingService : Service() {
             caption?.start()
 
             engine.start(onPcm = { buffer, length -> caption?.feed(buffer, length) })
+            requestAudioFocus()
 
             container.repository.patch(noteId) {
                 it.copy(audioPath = file.absolutePath, audioSizeBytes = 0L)
@@ -349,6 +357,53 @@ class RecordingService : Service() {
         broadcast()
     }
 
+    // ---------------------------------------------------------------- 音频焦点
+
+    /**
+     * 来电、其它应用开始播放声音时，系统会让我们丢掉音频焦点。
+     *
+     * 主用音频焦点而不是电话状态监听：不需要任何运行时权限，
+     * 而且覆盖的范围更广（不只是来电，导航播报、音乐也会触发）。
+     * 只有「因为我们自动暂停的」才自动续录 —— 用户自己按的暂停不能被撤销。
+     */
+    private val focusListener = AudioManager.OnAudioFocusChangeListener { change ->
+        when (change) {
+            AudioManager.AUDIOFOCUS_LOSS,
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                if (_state.value.phase == RecorderPhase.RECORDING) {
+                    autoPausedByFocusLoss = true
+                    handlePause()
+                }
+            }
+
+            AudioManager.AUDIOFOCUS_GAIN -> {
+                if (autoPausedByFocusLoss) {
+                    autoPausedByFocusLoss = false
+                    handleResume()
+                }
+            }
+        }
+    }
+
+    private fun requestAudioFocus() {
+        val manager = getSystemService(AUDIO_SERVICE) as? AudioManager ?: return
+        val request = AudioFocusRequest
+            .Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+            .setOnAudioFocusChangeListener(focusListener)
+            .build()
+        audioFocusRequest = request
+        runCatching { manager.requestAudioFocus(request) }
+    }
+
+    private fun abandonAudioFocus() {
+        autoPausedByFocusLoss = false
+        val manager = getSystemService(AUDIO_SERVICE) as? AudioManager ?: return
+        audioFocusRequest?.let { request ->
+            runCatching { manager.abandonAudioFocusRequest(request) }
+        }
+        audioFocusRequest = null
+    }
+
     // ---------------------------------------------------------------- 结束
 
     private fun handleStop() {
@@ -365,6 +420,7 @@ class RecordingService : Service() {
             return
         }
 
+        abandonAudioFocus()
         pushState(_state.value.copy(phase = RecorderPhase.PROCESSING, level = 0f))
         updateNotification(force = true)
         broadcast()

@@ -37,6 +37,7 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Inbox
 import androidx.compose.material.icons.filled.MergeType
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
@@ -47,6 +48,8 @@ import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
@@ -180,6 +183,20 @@ fun NotesScreen(
         uri?.let { viewModel.importAudio(it) }
     }
 
+    val pickMarkdownFile = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri?.let { viewModel.importMarkdownFile(it) }
+    }
+
+    val pickMarkdownTree = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        uri?.let { viewModel.importMarkdownTree(it) }
+    }
+
+    var showImportMenu by remember { mutableStateOf(false) }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
@@ -245,6 +262,30 @@ fun NotesScreen(
                             )
                         }
                         ThemeToggleButton(themeMode = themeMode, onToggle = onToggleTheme)
+                        Box {
+                            IconButton(onClick = { showImportMenu = true }) {
+                                Icon(Icons.Default.MoreVert, contentDescription = "导入 Markdown")
+                            }
+                            DropdownMenu(
+                                expanded = showImportMenu,
+                                onDismissRequest = { showImportMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("导入 Markdown 文件") },
+                                    onClick = {
+                                        showImportMenu = false
+                                        pickMarkdownFile.launch(arrayOf("*/*"))
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("导入 Markdown 文件夹") },
+                                    onClick = {
+                                        showImportMenu = false
+                                        pickMarkdownTree.launch(null)
+                                    }
+                                )
+                            }
+                        }
                     }
                 )
             }

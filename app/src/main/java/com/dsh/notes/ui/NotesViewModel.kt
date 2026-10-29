@@ -1,7 +1,9 @@
 package com.dsh.notes.ui
 
+import android.content.Intent
 import android.net.Uri
 import android.provider.OpenableColumns
+import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.dsh.notes.AppContainer
@@ -22,6 +24,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withContext
 
 /** 导入音频的进行状态 */
@@ -195,6 +198,109 @@ class NotesViewModel(private val container: AppContainer) : ViewModel() {
     fun search(value: String) {
         _keyword.value = value
     }
+
+    // ---------------------------------------------------------------- 导入 .md
+
+    /**
+     * 导入单个 Markdown 文件。
+     *
+     * 直接落成普通笔记：搜索、分类、导出、大肥鱼参考全部立即可用，
+     * 不需要再造一个「导入库」页面。
+     */
+    fun importMarkdownFile(uri: Uri) {
+        viewModelScope.launch {
+            try {
+                val text = withContext(Dispatchers.IO) {
+                    container.context.contentResolver.openInputStream(uri)?.use { input ->
+                        input.readBytes().toString(Charsets.UTF_8)
+                    }
+                } ?: throw IllegalStateException("读不到这个文件")
+                if (text.isBlank()) {
+                    _message.value = "这个文件是空的"
+                    return@launch
+                }
+                val title = displayNameOf(uri)?.removeSuffix(".md")?.removeSuffix(".MD")
+                    ?.takeIf { it.isNotBlank() } ?: "导入的笔记"
+                container.repository.create(
+                    Note(
+                        title = title,
+                        refinedMarkdown = text,
+                        status = NoteStatus.SAVED
+                    )
+                )
+                _message.value = "已导入「$title」"
+            } catch (error: Exception) {
+                _message.value = error.message ?: "导入失败"
+            }
+        }
+    }
+
+    /**
+     * 导入整个目录：递归找 .md，并按**父目录名**还原成分组。
+     */
+    fun importMarkdownTree(treeUri: Uri) {
+        viewModelScope.launch {
+            try {
+                runCatching {
+                    container.context.contentResolver.takePersistableUriPermission(
+                        treeUri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    )
+                }
+                val root = DocumentFile.fromTreeUri(container.context, treeUri)
+                    ?: throw IllegalStateException("读不到这个目录")
+                val imported = withContext(Dispatchers.IO) { importDirectory(root) }
+                _message.value = if (imported == 0) {
+                    "这个目录里没有 .md 文件"
+                } else {
+                    "已导入 $imported 篇"
+                }
+            } catch (error: Exception) {
+                _message.value = error.message ?: "导入失败"
+            }
+        }
+    }
+
+    private suspend fun importDirectory(dir: DocumentFile): Int {
+        var count = 0
+        // 这一层目录的名字就是里面笔记的分组名
+        val folderId = dir.name?.trim()?.takeIf { it.isNotBlank() }?.let {
+            runCatching { container.repository.folderIdOrCreate(it) }.getOrNull()
+        }
+        val children = runCatching { dir.listFiles() }.getOrDefault(emptyArray())
+        for (child in children) {
+            if (child.isDirectory) {
+                count += importDirectory(child)
+                continue
+            }
+            if (!child.name.orEmpty().endsWith(".md", ignoreCase = true)) continue
+            val text = runCatching {
+                container.context.contentResolver.openInputStream(child.uri)?.use { input ->
+                    input.readBytes().toString(Charsets.UTF_8)
+                }
+            }.getOrNull()
+            if (text.isNullOrBlank()) continue
+            val title = child.name.orEmpty().removeSuffix(".md").removeSuffix(".MD")
+            container.repository.create(
+                Note(
+                    title = title.ifBlank { "导入的笔记" },
+                    refinedMarkdown = text,
+                    status = NoteStatus.SAVED,
+                    folderId = folderId
+                )
+            )
+            count++
+        }
+        return count
+    }
+
+    private fun displayNameOf(uri: Uri): String? = runCatching {
+        container.context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            if (!cursor.moveToFirst()) return@use null
+            val index = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+            if (index >= 0) cursor.getString(index) else null
+        }
+    }.getOrNull()
 
     /** 列表里直接改标题，不用点进详情页 */
     fun rename(note: Note, title: String) {

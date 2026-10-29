@@ -28,7 +28,13 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInVertically
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -207,7 +213,12 @@ fun RecordingScreen(
             if (state.isRecording && settings.liveCaptionEnabled && !state.compressed) {
                 LiveCaptionPanel(
                     finalized = state.finalizedText,
-                    partial = state.partialText
+                    partial = state.partialText,
+                    paused = state.phase == RecorderPhase.PAUSED,
+                    onStop = { viewModel.stopRecording() },
+                    onPause = { viewModel.pauseRecording() },
+                    onResume = { viewModel.resumeRecording() },
+                    onAbandon = { viewModel.cancelRecording() }
                 )
                 Spacer(Modifier.height(10.dp))
             }
@@ -532,12 +543,21 @@ private fun LiveCaptionToggle(
 }
 
 @Composable
-private fun LiveCaptionPanel(finalized: String, partial: String) {
+private fun LiveCaptionPanel(
+    finalized: String,
+    partial: String,
+    paused: Boolean,
+    onStop: () -> Unit,
+    onPause: () -> Unit,
+    onResume: () -> Unit,
+    onAbandon: () -> Unit,
+) {
     val text = when {
         finalized.isBlank() && partial.isBlank() -> "开始说话后，这里会实时出现文字…"
         else -> finalized + partial
     }
     var fullScreen by remember { mutableStateOf(false) }
+    var confirmAbandon by remember { mutableStateOf(false) }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -602,10 +622,64 @@ private fun LiveCaptionPanel(finalized: String, partial: String) {
                     }
                     HorizontalDivider()
                     Spacer(Modifier.height(12.dp))
-                    AutoFollowText(text = text, modifier = Modifier.fillMaxSize())
+                    AutoFollowText(text = text, modifier = Modifier.weight(1f))
+
+                    // 底部操作栏：从底部滑出，全屏看上屏时也能直接控制录音
+                    AnimatedVisibility(
+                        visible = true,
+                        enter = slideInVertically(initialOffsetY = { it }) + fadeIn()
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 10.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Button(
+                                onClick = {
+                                    onStop()
+                                    fullScreen = false
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) { Text("结束") }
+
+                            OutlinedButton(
+                                onClick = { if (paused) onResume() else onPause() },
+                                modifier = Modifier.weight(1f)
+                            ) { Text(if (paused) "继续" else "暂停") }
+
+                            OutlinedButton(
+                                onClick = { confirmAbandon = true },
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    contentColor = MaterialTheme.colorScheme.error,
+                                    disabledContentColor = MaterialTheme.colorScheme.error.copy(alpha = 0.5f)
+                                )
+                            ) { Text("放弃") }
+                        }
+                    }
                 }
             }
         }
+    }
+
+    if (confirmAbandon) {
+        AlertDialog(
+            onDismissRequest = { confirmAbandon = false },
+            title = { Text("放弃这次录音？") },
+            text = { Text("已录内容与上屏文字都会被丢弃，不可恢复。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmAbandon = false
+                    onAbandon()
+                    fullScreen = false
+                }) { Text("放弃") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmAbandon = false }) { Text("取消") }
+            }
+        )
     }
 }
 

@@ -17,6 +17,9 @@ interface FolderDao {
     @Query("SELECT * FROM folders WHERE id = :id")
     suspend fun findById(id: Long): Folder?
 
+    @Query("SELECT * FROM folders WHERE name = :name LIMIT 1")
+    suspend fun findByName(name: String): Folder?
+
     @Query("UPDATE folders SET name = :name WHERE id = :id")
     suspend fun rename(id: Long, name: String)
 
