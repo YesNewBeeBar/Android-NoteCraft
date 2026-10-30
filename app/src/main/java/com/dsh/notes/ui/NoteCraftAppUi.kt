@@ -177,8 +177,9 @@ fun NoteCraftApp(
         // 拖动选择：按住底栏，出现一个玻璃球跟着手指走，
         // 球罩住哪个 tab，松手就切到哪个。让手势方向和「看到的东西」一致。
         var lensIndex by remember { mutableIntStateOf(-1) }
+        var lensX by remember { mutableFloatStateOf(0f) }
 
-        Box(modifier = Modifier.fillMaxSize().captureBackdrop(backdrop)) {
+        Box(modifier = Modifier.fillMaxSize()) {
             // 玻璃配色先取出来：drawBehind 里不能调用 @Composable
             val isLiquid = settings.glassStyle == GLASS_LIQUID
             val density = LocalDensity.current
@@ -222,15 +223,21 @@ fun NoteCraftApp(
 
             // 拖动时那颗玻璃球：参数更「水」，边缘折射更强，罩住谁就切谁
             val lensRadiusPx = with(density) { 34.dp.toPx() }
-            val lensCenterPx = if (barSize.width > 0f) {
-                barSize.width / Destination.entries.size * (lensIndex + 0.5f)
+            val lensCenterPx = if (barSize.width > 0f && lensIndex >= 0) {
+                lensX.coerceIn(lensRadiusPx, barSize.width - lensRadiusPx)
             } else {
                 0f
+            }
+            // 着色器的采样坐标按 12dp 一档量化：球每移动一点就重建一次 RuntimeShader 太贵，
+            // 量化之后一次拖动只重建十来次，肉眼看不出台阶
+            val lensQuantized = with(density) {
+                val step = 12.dp.toPx()
+                (lensCenterPx / step).toInt() * step
             }
             val lensBrush = rememberLiquidGlassBrush(
                 state = backdrop,
                 offsetPx = Offset(
-                    barLeftPx + lensCenterPx - lensRadiusPx,
+                    barLeftPx + lensQuantized - lensRadiusPx,
                     barTopPx + barSize.height / 2f - lensRadiusPx
                 ),
                 sizePx = Size(lensRadiusPx * 2f, lensRadiusPx * 2f),
@@ -262,6 +269,14 @@ fun NoteCraftApp(
                 label = "lensScale"
             )
 
+            /*
+             * 截图只包住页面内容 —— **底栏必须在外面**。
+             *
+             * 之前整棵 Box 都被录进 GraphicsLayer，玻璃采样到的那块「背后」里
+             * 正好有上一帧的底栏自己：一帧比一帧黑，最后就是一块黑板。
+             * 现在录的是纯内容，玻璃才真的看到页面。
+             */
+            Box(modifier = Modifier.fillMaxSize().captureBackdrop(backdrop)) {
             Scaffold(
                 snackbarHost = {
                     SnackbarHost(
@@ -364,6 +379,7 @@ fun NoteCraftApp(
                     }
                 }
             }
+            }
 
             /*
              * 液态玻璃底栏。
@@ -397,6 +413,7 @@ fun NoteCraftApp(
                                         // 先动一小段才算拖，轻点仍然走后面的点击
                                         if (!active && abs(x - startX) > 18.dp.toPx()) active = true
                                         if (active && size.width > 0) {
+                                            lensX = x.coerceIn(0f, size.width.toFloat())
                                             lensIndex = ((x / size.width) * Destination.entries.size)
                                                 .toInt()
                                                 .coerceIn(0, Destination.entries.size - 1)
