@@ -183,18 +183,22 @@ fun NoteCraftApp(
             val isLiquid = settings.glassStyle == GLASS_LIQUID
             val density = LocalDensity.current
             // 兜底底色：液态玻璃就算着色器没跑起来，也必须透（低不透明度），
-            // 不能是一块实心黑 —— 那是之前「太黑」的根源
-            val scrimAlpha = if (isLiquid) 0.12f else 0.55f
-            val glassTop = MaterialTheme.colorScheme.surface.copy(alpha = scrimAlpha * 0.6f)
-            val glassBottom = MaterialTheme.colorScheme.surface.copy(alpha = scrimAlpha)
+            // 不能是一块实心黑 —— 那是之前「太黑」的根源。
+            // 用 onSurface 而不是 surface：暗色主题里它是白色，
+            // 玻璃才会比背后亮一点、像玻璃；用 surface 永远是一层更深的黑。
+            val scrimAlpha = if (isLiquid) 0.10f else 0.55f
+            val glassTop = MaterialTheme.colorScheme.onSurface.copy(alpha = scrimAlpha * 0.5f)
+            val glassBottom = MaterialTheme.colorScheme.onSurface.copy(alpha = scrimAlpha)
             val glassEdge = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.14f)
 
             // 两种玻璃走同一个着色器，只换参数：
             //   毛玻璃 = 大模糊 + 几乎不透明，看不出背后的细节
-            //   液态玻璃 = 小模糊 + 强折射 + 强色散 + 高光，能认出背后的形状
-            val glassTint = MaterialTheme.colorScheme.surface.copy(
-                alpha = if (isLiquid) 0.10f else 0.72f
-            )
+            //   液态玻璃 = 小模糊 + 折射 + 高光，能认出背后的形状
+            val glassTint = if (isLiquid) {
+                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f)
+            } else {
+                MaterialTheme.colorScheme.surface.copy(alpha = 0.72f)
+            }
 
             // 底栏在快照里的位置和尺寸（像素）
             var barLeftPx by remember { mutableFloatStateOf(0f) }
