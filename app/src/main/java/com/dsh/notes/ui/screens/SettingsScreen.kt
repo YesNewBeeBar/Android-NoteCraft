@@ -5,6 +5,7 @@ import android.net.Uri
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -51,6 +52,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -81,8 +83,11 @@ import com.dsh.notes.data.AsrEngine
 import com.dsh.notes.data.ConfigArea
 import com.dsh.notes.data.ConfigField
 import com.dsh.notes.data.ConfigValidator
+import com.dsh.notes.data.GLASS_FROSTED
+import com.dsh.notes.data.GLASS_LIQUID
 import com.dsh.notes.data.StorageFormat
 import com.dsh.notes.data.ThemeMode
+import com.dsh.notes.ui.components.GlassDiagnostics
 import com.dsh.notes.ui.NoteCraftViewModelFactory
 import com.dsh.notes.ui.SettingsViewModel
 import com.dsh.notes.ui.components.ThemeToggleButton
@@ -727,11 +732,31 @@ fun SettingsScreen(
                 subtitle = "可能影响稳定性，默认关闭"
             ) {
                 SwitchRow(
-                    title = "磨砂玻璃",
-                    subtitle = "顶栏与底栏改为半透明，Android 12 以上更明显",
+                    title = "特殊效果",
+                    subtitle = "底栏换成玻璃质感，让下方内容透出来（Android 13 以上才有真玻璃）",
                     checked = settings.experimentalGlass,
                     onCheckedChange = viewModel::setExperimentalGlass
                 )
+                if (settings.experimentalGlass) {
+                    ChoiceRow(
+                        title = "毛玻璃",
+                        subtitle = "大范围模糊，只看得到背后的色块",
+                        selected = settings.glassStyle == GLASS_FROSTED,
+                        onClick = { viewModel.setGlassStyle(GLASS_FROSTED) }
+                    )
+                    ChoiceRow(
+                        title = "液态玻璃",
+                        subtitle = "边缘折射、色散和高光，能认出背后画面的形状",
+                        selected = settings.glassStyle == GLASS_LIQUID,
+                        onClick = { viewModel.setGlassStyle(GLASS_LIQUID) }
+                    )
+                    Text(
+                        text = GlassDiagnostics.status,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 46.dp, top = 2.dp, bottom = 8.dp)
+                    )
+                }
                 SwitchRow(
                     title = "过渡动效",
                     subtitle = "页面切换加入淡入淡出",
@@ -740,7 +765,7 @@ fun SettingsScreen(
                 )
                 SwitchRow(
                     title = "横滑切换",
-                    subtitle = "在录音 / 笔记 / 设置之间左右滑动切换",
+                    subtitle = "在底部导航栏上左右滑动，切换录音 / 笔记 / 设置",
                     checked = settings.experimentalSwipeTabs,
                     onCheckedChange = viewModel::setExperimentalSwipeTabs
                 )
@@ -1052,6 +1077,37 @@ private fun SwitchRow(
             )
         }
         Switch(checked = checked, onCheckedChange = onCheckedChange)
+    }
+}
+
+/** 二选一的行（单选圆点）。缩进一点，视觉上挂在上面那个开关下面 */
+@Composable
+private fun ChoiceRow(
+    title: String,
+    subtitle: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 2.dp, horizontal = 0.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        RadioButton(selected = selected, onClick = onClick)
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     }
 }
 

@@ -15,7 +15,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.input.pointer.positionChangeIgnoreConsumed
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -72,6 +72,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.dsh.notes.data.GLASS_LIQUID
 import com.dsh.notes.ui.components.CaptureBackdropEffect
 import com.dsh.notes.ui.components.UpdateDialog
 import com.dsh.notes.ui.components.captureBackdrop
@@ -168,45 +169,33 @@ fun NoteCraftApp(
         val backdrop = rememberBackdropState()
         CaptureBackdropEffect(backdrop, currentRoute)
 
-        // 实验性：在三个主 tab 之间横滑切换。
+        // 实验性：在**底部导航栏**上左右滑动切换三个主 tab。
         //
-        // 原来挂在 Scaffold 内容里的 Box 上，页面竖向滚动会把指针事件消费掉，
-        // 于是永远收不到。现在挂到最外层 Box（整个 App 的祖先），
-        // 并且在 Initial 阶段旁路观察：只有横向明显占优才接管，
-        // 竖向拖动原样放行，滚动和点击都不受影响。
-        val swipeModifier = if (settings.experimentalSwipeTabs && topLevelIndex >= 0 && !fishOpen) {
+        // 之前是让页面内容左右滑，结果和笔记卡片的左滑菜单打架 —— 那个必须留给卡片。
+        // 现在手势只挂在底栏这一条上：手指落在录音 / 笔记 / 设置这一行时才算数，
+        // 页面里的任何滑动都不受影响。
+        val barSwipeModifier = if (settings.experimentalSwipeTabs && topLevelIndex >= 0) {
             Modifier.pointerInput(topLevelIndex) {
                 awaitEachGesture {
-                    val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                    val down = awaitFirstDown(requireUnconsumed = false)
                     var totalX = 0f
                     var totalY = 0f
-                    var decided = false
-                    var horizontal = false
-
-                    while (true) {
-                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                    var fired = false
+                    while (!fired) {
+                        val event = awaitPointerEvent()
                         val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                        totalX += change.positionChange().x
-                        totalY += change.positionChange().y
-
-                        if (!decided && (abs(totalX) > 24f || abs(totalY) > 24f)) {
-                            decided = true
-                            horizontal = abs(totalX) > abs(totalY) * 1.2f
-                            if (!horizontal) return@awaitEachGesture
-                        }
-
-                        if (horizontal && abs(totalX) > 120f) {
-                            val target = Destination.entries.getOrNull(topLevelIndex + if (totalX < 0) 1 else -1)
+                        totalX += change.positionChangeIgnoreConsumed().x
+                        totalY += change.positionChangeIgnoreConsumed().y
+                        if (abs(totalX) > 48.dp.toPx() && abs(totalX) > abs(totalY) * 1.2f) {
+                            val target = Destination.entries.getOrNull(
+                                topLevelIndex + if (totalX < 0) 1 else -1
+                            )
                             if (target != null) {
-                                navController.navigate(target.route) {
-                                    popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
+                                change.consume()
+                                goTab(target)
                             }
-                            return@awaitEachGesture
+                            fired = true
                         }
-
                         if (!change.pressed) break
                     }
                 }
@@ -215,19 +204,26 @@ fun NoteCraftApp(
             Modifier
         }
 
-        Box(modifier = Modifier.fillMaxSize().captureBackdrop(backdrop).then(swipeModifier)) {
+        Box(modifier = Modifier.fillMaxSize().captureBackdrop(backdrop)) {
             // 玻璃配色先取出来：drawBehind 里不能调用 @Composable
             val glassTop = MaterialTheme.colorScheme.surface.copy(alpha = 0.42f)
             val glassBottom = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f)
             val glassEdge = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.14f)
-            val glassTint = MaterialTheme.colorScheme.surface.copy(alpha = 0.58f)
             val density = LocalDensity.current
+
+            // 两种玻璃走同一个着色器，只换参数：
+            //   毛玻璃 = 大模糊 + 几乎不透明，看不出背后的细节
+            //   液态玻璃 = 小模糊 + 强折射 + 强色散 + 高光，能认出背后的形状
+            val isLiquid = settings.glassStyle == GLASS_LIQUID
+            val glassTint = MaterialTheme.colorScheme.surface.copy(
+                alpha = if (isLiquid) 0.18f else 0.72f
+            )
 
             // 底栏在快照里的位置和尺寸（像素）
             var barLeftPx by remember { mutableFloatStateOf(0f) }
             var barTopPx by remember { mutableFloatStateOf(0f) }
             var barSize by remember { mutableStateOf(Size.Zero) }
-            val barCorner = 26.dp
+            val barCorner = 30.dp
             val barShape = remember(barCorner) { RoundedCornerShape(barCorner) }
 
             val glassBrush = rememberLiquidGlassBrush(
@@ -236,14 +232,17 @@ fun NoteCraftApp(
                 sizePx = barSize,
                 cornerPx = with(density) { barCorner.toPx() },
                 tint = glassTint,
-                blurPx = with(density) { 10.dp.toPx() }
+                blurPx = with(density) { (if (isLiquid) 6.dp else 22.dp).toPx() },
+                refraction = if (isLiquid) 2.4f else 0f,
+                dispersion = if (isLiquid) 1f else 0f,
+                highlight = if (isLiquid) 0.95f else 0.05f
             )
 
             Scaffold(
                 snackbarHost = {
                     SnackbarHost(
                         snackbar,
-                        modifier = Modifier.padding(bottom = if (showBottomBar) 88.dp else 0.dp)
+                        modifier = Modifier.padding(bottom = if (showBottomBar) 96.dp else 0.dp)
                     )
                 }
             ) { innerPadding ->
@@ -294,7 +293,9 @@ fun NoteCraftApp(
                             onOpenNote = { noteId -> navController.navigate("note/$noteId") },
                             onOpenFish = { mainViewModel.openFish() },
                             sharedAudioUris = sharedAudioUris,
-                            onSharedAudioConsumed = onSharedAudioConsumed
+                            onSharedAudioConsumed = onSharedAudioConsumed,
+                            // 底栏浮在内容之上，按钮要抬到它上面去，否则会被盖住
+                            bottomInset = if (showBottomBar) 96.dp else 0.dp
                         )
                     }
 
@@ -352,6 +353,7 @@ fun NoteCraftApp(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
+                        .then(barSwipeModifier)
                         .navigationBarsPadding()
                 ) {
                     Box(

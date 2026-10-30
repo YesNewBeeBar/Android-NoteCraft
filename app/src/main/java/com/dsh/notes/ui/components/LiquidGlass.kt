@@ -5,6 +5,7 @@ import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -145,13 +146,17 @@ fun rememberLiquidGlassBrush(
     cornerPx: Float,
     tint: Color,
     blurPx: Float,
-    refraction: Float = 1.1f,
-    dispersion: Float = 0.55f,
-    highlight: Float = 0.55f
+    refraction: Float,
+    dispersion: Float,
+    highlight: Float
 ): Brush? {
     val context = LocalContext.current
     val bitmap = state.bitmap
-    return remember(bitmap, offsetPx, sizePx, cornerPx, tint, blurPx, refraction, dispersion, highlight) {
+    var reason: String? = null
+
+    val brush = remember(
+        bitmap, offsetPx, sizePx, cornerPx, tint, blurPx, refraction, dispersion, highlight, state.scale
+    ) {
         if (bitmap == null) return@remember null
         if (sizePx.width < 1f || sizePx.height < 1f) return@remember null
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return@remember null
@@ -169,8 +174,28 @@ fun rememberLiquidGlassBrush(
                 dispersion = dispersion,
                 highlight = highlight
             )
+        }.onFailure {
+            reason = it.message?.take(120) ?: it::class.java.simpleName
         }.getOrNull()
     }
+
+    // 把真实原因写出来，省得「没效果」和「没生效」两件事分不清
+    val statusText = when {
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ->
+            "玻璃：系统低于 Android 13，已退回渐变"
+        bitmap == null -> "玻璃：等待首帧快照…"
+        brush == null -> "玻璃：着色器不可用 —— ${reason ?: "未知原因"}"
+        else -> "玻璃：着色器运行中"
+    }
+    SideEffect { GlassDiagnostics.status = statusText }
+
+    return brush
+}
+
+/** 玻璃当前的实际状态，显示在设置页，方便判断到底是没生效还是没做好 */
+object GlassDiagnostics {
+    var status: String by mutableStateOf("玻璃：未启用")
+        internal set
 }
 
 @RequiresApi(Build.VERSION_CODES.TIRAMISU)

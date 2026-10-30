@@ -95,6 +95,12 @@ enum class AsrEngine {
         }
 }
 
+/** 玻璃风格：毛玻璃（大模糊、无折射） */
+const val GLASS_FROSTED = "frosted"
+
+/** 玻璃风格：液态玻璃（折射 + 色散 + 高光） */
+const val GLASS_LIQUID = "liquid"
+
 /** 录音 / 转写 / 整理的全部可调项 */
 data class AppSettings(
     // ---------- DeepSeek（笔记整理） ----------
@@ -172,6 +178,9 @@ data class AppSettings(
 
     /** 横滑切换三个主 tab */
     val experimentalSwipeTabs: Boolean = true,
+
+    /** 玻璃风格：frosted = 毛玻璃，liquid = 液态玻璃 */
+    val glassStyle: String = GLASS_LIQUID,
 
     // ---------- 大肥鱼（AI 问答）----------
     /** 助手名字，默认「大肥鱼」 */
@@ -262,6 +271,7 @@ class SettingsStore(private val context: Context) {
         val experimentalGlass = booleanPreferencesKey("experimental_glass")
         val experimentalMotion = booleanPreferencesKey("experimental_motion")
         val experimentalSwipeTabs = booleanPreferencesKey("experimental_swipe_tabs")
+        val glassStyle = stringPreferencesKey("glass_style")
         val fishName = stringPreferencesKey("fish_name")
         val fishBaseUrl = stringPreferencesKey("fish_base_url")
         val fishApiKey = stringPreferencesKey("fish_api_key_enc")
@@ -313,6 +323,7 @@ class SettingsStore(private val context: Context) {
             experimentalGlass = prefs[Keys.experimentalGlass] ?: true,
             experimentalMotion = prefs[Keys.experimentalMotion] ?: true,
             experimentalSwipeTabs = prefs[Keys.experimentalSwipeTabs] ?: true,
+            glassStyle = prefs[Keys.glassStyle] ?: GLASS_LIQUID,
             fishName = prefs[Keys.fishName]?.takeIf { it.isNotBlank() } ?: "大肥鱼",
             fishBaseUrl = prefs[Keys.fishBaseUrl] ?: "",
             fishApiKey = CryptoUtils.decrypt(prefs[Keys.fishApiKey] ?: ""),
@@ -388,6 +399,8 @@ class SettingsStore(private val context: Context) {
     suspend fun setExperimentalMotion(value: Boolean) = put(Keys.experimentalMotion, value)
 
     suspend fun setExperimentalSwipeTabs(value: Boolean) = put(Keys.experimentalSwipeTabs, value)
+
+    suspend fun setGlassStyle(value: String) = put(Keys.glassStyle, value)
 
     suspend fun setFishName(value: String) = put(Keys.fishName, value.trim().ifBlank { "大肥鱼" })
 

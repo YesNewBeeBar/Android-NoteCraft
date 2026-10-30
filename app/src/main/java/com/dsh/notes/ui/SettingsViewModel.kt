@@ -58,6 +58,9 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
     fun setExperimentalSwipeTabs(value: Boolean) =
         viewModelScope.launch { container.settings.setExperimentalSwipeTabs(value) }
 
+    fun setGlassStyle(value: String) =
+        viewModelScope.launch { container.settings.setGlassStyle(value) }
+
     // ---------------------------------------------------------------- 大肥鱼
 
     fun setFishName(value: String) = viewModelScope.launch { container.settings.setFishName(value) }

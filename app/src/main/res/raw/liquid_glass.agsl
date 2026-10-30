@@ -39,7 +39,7 @@ float2 edgeNormal(float2 coord) {
              - sdRoundBox(local - float2(0.0, e), half1, r);
     float2 n = normalize(float2(dx, dy) + float2(0.00001, 0.00001));
     float d = sdRoundBox(local, half1, r);
-    float t = saturate(1.0 + d / r);
+    float t = clamp(1.0 + d / r, 0.0, 1.0);
     return n * t;
 }
 
@@ -80,7 +80,7 @@ half4 main(float2 coord) {
     half3 base = mix(glass, tintRgb, tintAlpha);
 
     // 边缘高光：一束斜上方的光
-    float rim = saturate(dot(n, normalize(float2(-0.7, -0.7))));
+    float rim = clamp(dot(n, normalize(float2(-0.7, -0.7))), 0.0, 1.0);
     float spec = pow(rim, 3.0) * uHighlight;
 
     return half4(base + half3(spec), 1.0);

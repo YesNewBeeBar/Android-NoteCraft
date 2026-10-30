@@ -78,6 +78,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -112,7 +113,9 @@ fun NotesScreen(
     /** 打开大肥鱼问答页。只从这里（导入音频上方的机器人球）能进 */
     onOpenFish: () -> Unit,
     sharedAudioUris: List<Uri> = emptyList(),
-    onSharedAudioConsumed: () -> Unit = {}
+    onSharedAudioConsumed: () -> Unit = {},
+    /** 浮起来的底部导航栏挡住的高度，按钮要抬到它上面 */
+    bottomInset: Dp = 0.dp
 ) {
     val viewModel: NotesViewModel = viewModel(factory = viewModelFactory)
     val allNotes by viewModel.visibleNotes.collectAsStateWithLifecycle()
@@ -294,7 +297,9 @@ fun NotesScreen(
             if (!selectionMode) {
                 Column(
                     horizontalAlignment = Alignment.End,
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    // 大肥鱼球和「导入音频」一起上移，两者间距不变
+                    modifier = Modifier.padding(bottom = bottomInset)
                 ) {
                     // 大肥鱼入口：导入音频上方的一个小圆球
                     SmallFloatingActionButton(
