@@ -148,14 +148,15 @@ fun rememberLiquidGlassBrush(
     blurPx: Float,
     refraction: Float,
     dispersion: Float,
-    highlight: Float
+    highlight: Float,
+    lift: Float = 0f
 ): Brush? {
     val context = LocalContext.current
     val bitmap = state.bitmap
     var reason: String? = null
 
     val brush = remember(
-        bitmap, offsetPx, sizePx, cornerPx, tint, blurPx, refraction, dispersion, highlight, state.scale
+        bitmap, offsetPx, sizePx, cornerPx, tint, blurPx, refraction, dispersion, highlight, lift, state.scale
     ) {
         if (bitmap == null) return@remember null
         if (sizePx.width < 1f || sizePx.height < 1f) return@remember null
@@ -172,7 +173,8 @@ fun rememberLiquidGlassBrush(
                 scale = state.scale,
                 refraction = refraction,
                 dispersion = dispersion,
-                highlight = highlight
+                highlight = highlight,
+                lift = lift
             )
         }.onFailure {
             reason = it.message?.take(120) ?: it::class.java.simpleName
@@ -210,7 +212,8 @@ private fun buildGlassShader(
     scale: Float,
     refraction: Float,
     dispersion: Float,
-    highlight: Float
+    highlight: Float,
+    lift: Float
 ): ShaderBrush {
     val source = context.resources.openRawResource(R.raw.liquid_glass)
         .bufferedReader()
@@ -242,6 +245,7 @@ private fun buildGlassShader(
     shader.setFloatUniform("uRefraction", refraction)
     shader.setFloatUniform("uDispersion", dispersion)
     shader.setFloatUniform("uHighlight", highlight)
+    shader.setFloatUniform("uLift", lift)
     // uTint 是普通 float4，不是 layout(color)，只能用浮点接口塞进去；
     // 用 setColorUniform 会抛 "non-color specific APIs"，整个着色器就废了
     shader.setFloatUniform(

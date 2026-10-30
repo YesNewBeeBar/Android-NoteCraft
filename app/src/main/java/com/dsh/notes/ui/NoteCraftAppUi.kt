@@ -8,6 +8,9 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
@@ -52,6 +55,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -169,40 +173,9 @@ fun NoteCraftApp(
         val backdrop = rememberBackdropState()
         CaptureBackdropEffect(backdrop, currentRoute)
 
-        // 实验性：在**底部导航栏**上左右滑动切换三个主 tab。
-        //
-        // 之前是让页面内容左右滑，结果和笔记卡片的左滑菜单打架 —— 那个必须留给卡片。
-        // 现在手势只挂在底栏这一条上：手指落在录音 / 笔记 / 设置这一行时才算数，
-        // 页面里的任何滑动都不受影响。
-        val barSwipeModifier = if (settings.experimentalSwipeTabs && topLevelIndex >= 0) {
-            Modifier.pointerInput(topLevelIndex) {
-                awaitEachGesture {
-                    val down = awaitFirstDown(requireUnconsumed = false)
-                    var totalX = 0f
-                    var totalY = 0f
-                    var fired = false
-                    while (!fired) {
-                        val event = awaitPointerEvent()
-                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                        totalX += change.positionChangeIgnoreConsumed().x
-                        totalY += change.positionChangeIgnoreConsumed().y
-                        if (abs(totalX) > 48.dp.toPx() && abs(totalX) > abs(totalY) * 1.2f) {
-                            val target = Destination.entries.getOrNull(
-                                topLevelIndex + if (totalX < 0) 1 else -1
-                            )
-                            if (target != null) {
-                                change.consume()
-                                goTab(target)
-                            }
-                            fired = true
-                        }
-                        if (!change.pressed) break
-                    }
-                }
-            }
-        } else {
-            Modifier
-        }
+        // 拖动选择：按住底栏，出现一个玻璃球跟着手指走，
+        // 球罩住哪个 tab，松手就切到哪个。让手势方向和「看到的东西」一致。
+        var lensIndex by remember { mutableIntStateOf(-1) }
 
         Box(modifier = Modifier.fillMaxSize().captureBackdrop(backdrop)) {
             // 玻璃配色先取出来：drawBehind 里不能调用 @Composable
@@ -216,7 +189,7 @@ fun NoteCraftApp(
             //   液态玻璃 = 小模糊 + 强折射 + 强色散 + 高光，能认出背后的形状
             val isLiquid = settings.glassStyle == GLASS_LIQUID
             val glassTint = MaterialTheme.colorScheme.surface.copy(
-                alpha = if (isLiquid) 0.18f else 0.72f
+                alpha = if (isLiquid) 0.10f else 0.72f
             )
 
             // 底栏在快照里的位置和尺寸（像素）
@@ -232,10 +205,34 @@ fun NoteCraftApp(
                 sizePx = barSize,
                 cornerPx = with(density) { barCorner.toPx() },
                 tint = glassTint,
-                blurPx = with(density) { (if (isLiquid) 14.dp else 22.dp).toPx() },
+                blurPx = with(density) { (if (isLiquid) 10.dp else 22.dp).toPx() },
                 refraction = if (isLiquid) 1.6f else 0f,
                 dispersion = if (isLiquid) 0.18f else 0f,
-                highlight = if (isLiquid) 0.7f else 0.05f
+                highlight = if (isLiquid) 0.7f else 0.05f,
+                lift = if (isLiquid) 0.05f else 0f
+            )
+
+            // 拖动时那颗玻璃球：参数更「水」，边缘折射更强，罩住谁就切谁
+            val lensRadiusPx = with(density) { 34.dp.toPx() }
+            val lensCenterPx = if (barSize.width > 0f) {
+                barSize.width / Destination.entries.size * (lensIndex + 0.5f)
+            } else {
+                0f
+            }
+            val lensBrush = rememberLiquidGlassBrush(
+                state = backdrop,
+                offsetPx = Offset(
+                    barLeftPx + lensCenterPx - lensRadiusPx,
+                    barTopPx + barSize.height / 2f - lensRadiusPx
+                ),
+                sizePx = Size(lensRadiusPx * 2f, lensRadiusPx * 2f),
+                cornerPx = lensRadiusPx,
+                tint = glassTint,
+                blurPx = with(density) { 3.dp.toPx() },
+                refraction = 2.2f,
+                dispersion = 0.25f,
+                highlight = 1.1f,
+                lift = 0.08f
             )
 
             Scaffold(
@@ -353,13 +350,39 @@ fun NoteCraftApp(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
-                        .then(barSwipeModifier)
                         .navigationBarsPadding()
                 ) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 10.dp, vertical = 6.dp)
+                            .pointerInput(settings.experimentalSwipeTabs) {
+                                if (!settings.experimentalSwipeTabs) return@pointerInput
+                                awaitEachGesture {
+                                    val down = awaitFirstDown(requireUnconsumed = false)
+                                    var active = false
+                                    val startX = down.position.x
+                                    while (true) {
+                                        val event = awaitPointerEvent()
+                                        val change = event.changes
+                                            .firstOrNull { it.id == down.id } ?: break
+                                        val x = change.position.x
+                                        // 先动一小段才算拖，轻点仍然走后面的点击
+                                        if (!active && abs(x - startX) > 18.dp.toPx()) active = true
+                                        if (active && size.width > 0) {
+                                            lensIndex = ((x / size.width) * Destination.entries.size)
+                                                .toInt()
+                                                .coerceIn(0, Destination.entries.size - 1)
+                                            change.consume()
+                                        }
+                                        if (!change.pressed) break
+                                    }
+                                    if (active) {
+                                        Destination.entries.getOrNull(lensIndex)?.let { goTab(it) }
+                                    }
+                                    lensIndex = -1
+                                }
+                            }
                             .clip(barShape)
                             .onGloballyPositioned { coords ->
                                 val position = coords.positionInRoot()
@@ -395,6 +418,26 @@ fun NoteCraftApp(
                                     label = { Text(destination.label) }
                                 )
                             }
+                        }
+
+                        // 跟着手指走的玻璃球，罩住哪个 tab 就切哪个
+                        if (settings.experimentalGlass && lensIndex >= 0 && barSize.width > 0f) {
+                            val radiusDp = with(density) { lensRadiusPx.toDp() }
+                            Box(
+                                modifier = Modifier
+                                    .offset(
+                                        x = with(density) { lensCenterPx.toDp() } - radiusDp,
+                                        y = with(density) { (barSize.height / 2f).toDp() } - radiusDp
+                                    )
+                                    .size(radiusDp * 2)
+                                    .clip(CircleShape)
+                                    .liquidGlassBackground(
+                                        brush = lensBrush,
+                                        fallbackTop = glassTop,
+                                        fallbackBottom = glassBottom,
+                                        edge = glassEdge
+                                    )
+                            )
                         }
                     }
                 }

@@ -19,6 +19,7 @@ uniform float uBlur;         // 模糊半径（像素）
 uniform float uRefraction;   // 折射强度 0..1
 uniform float uDispersion;   // 色散强度 0..1
 uniform float uHighlight;    // 高光强度 0..1
+uniform float uLift;         // 整体提亮 0..1（暗色主题下防止玻璃变黑）
 uniform float4 uTint;        // 玻璃染色，alpha 当磨砂浓度
 
 // 圆角矩形的有向距离：内部为负，边界为 0，外部为正
@@ -78,6 +79,8 @@ half4 main(float2 coord) {
     half3 tintRgb = half3(uTint.rgb);
     half tintAlpha = half(uTint.a);
     half3 base = mix(glass, tintRgb, tintAlpha);
+    // 提亮：玻璃是「有厚度的透明体」，不该把背后的画面压成黑的
+    base = base + half3(half(uLift));
 
     // 边缘高光：一束斜上方的光
     float rim = clamp(dot(n, normalize(float2(-0.7, -0.7))), 0.0, 1.0);
