@@ -165,13 +165,13 @@ data class AppSettings(
 
     // ---------- 实验性功能 ----------
     /** 磨砂玻璃：顶栏/底栏改成半透明 */
-    val experimentalGlass: Boolean = false,
+    val experimentalGlass: Boolean = true,
 
     /** 过渡动效：页面切换加淡入淡出 */
-    val experimentalMotion: Boolean = false,
+    val experimentalMotion: Boolean = true,
 
     /** 横滑切换三个主 tab */
-    val experimentalSwipeTabs: Boolean = false,
+    val experimentalSwipeTabs: Boolean = true,
 
     // ---------- 大肥鱼（AI 问答）----------
     /** 助手名字，默认「大肥鱼」 */
@@ -310,9 +310,9 @@ class SettingsStore(private val context: Context) {
             floatingBallAlpha = (prefs[Keys.floatingBallAlpha] ?: "0.9").toFloatOrNull() ?: 0.9f,
             floatingBallIconPath = prefs[Keys.floatingBallIconPath] ?: "",
             cloudAsrLanguage = prefs[Keys.cloudAsrLanguage] ?: "zh",
-            experimentalGlass = prefs[Keys.experimentalGlass] ?: false,
-            experimentalMotion = prefs[Keys.experimentalMotion] ?: false,
-            experimentalSwipeTabs = prefs[Keys.experimentalSwipeTabs] ?: false,
+            experimentalGlass = prefs[Keys.experimentalGlass] ?: true,
+            experimentalMotion = prefs[Keys.experimentalMotion] ?: true,
+            experimentalSwipeTabs = prefs[Keys.experimentalSwipeTabs] ?: true,
             fishName = prefs[Keys.fishName]?.takeIf { it.isNotBlank() } ?: "大肥鱼",
             fishBaseUrl = prefs[Keys.fishBaseUrl] ?: "",
             fishApiKey = CryptoUtils.decrypt(prefs[Keys.fishApiKey] ?: ""),

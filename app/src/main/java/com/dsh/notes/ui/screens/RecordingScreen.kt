@@ -387,7 +387,8 @@ fun RecordingScreen(
                 Spacer(Modifier.height(16.dp))
                 Tips(settings.liveCaptionEnabled, settings.asrEngine.label)
             }
-            Spacer(Modifier.height(24.dp))
+            // 给浮起来的底栏让位
+            Spacer(Modifier.height(110.dp))
         }
     }
 

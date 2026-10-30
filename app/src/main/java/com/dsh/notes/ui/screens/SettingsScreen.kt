@@ -830,7 +830,8 @@ fun SettingsScreen(
                 }
             }
 
-            Spacer(Modifier.height(48.dp))
+            // 底栏现在浮在内容之上，最后一项要留出它的高度，否则会被玻璃盖住
+            Spacer(Modifier.height(120.dp))
         }
     }
 

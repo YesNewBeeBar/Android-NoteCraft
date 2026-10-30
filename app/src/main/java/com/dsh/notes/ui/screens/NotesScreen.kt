@@ -436,7 +436,7 @@ fun NotesScreen(
                                 )
                             }
                         }
-                        item { Spacer(Modifier.height(72.dp)) }
+                        item { Spacer(Modifier.height(104.dp)) }
                     }
                 }
 
@@ -477,7 +477,7 @@ fun NotesScreen(
                             )
                         }
                         item(span = { GridItemSpan(maxLineSpan) }) {
-                            Spacer(Modifier.height(72.dp))
+                            Spacer(Modifier.height(104.dp))
                         }
                     }
                 }

@@ -1,0 +1,87 @@
+// 液态玻璃（AGSL，Android 13 / API 33 起）
+//
+// 管线四步，一次采样完成：
+//   1. 多 tap 模糊
+//   2. 圆角矩形 SDF 梯度当法线 → 采样点向边缘弯折（折射）
+//   3. R/G/B 用略微不同的弯折量（色散）
+//   4. 法线点乘光照方向 → 边缘高光
+//
+// uContent 是「底栏背后那块画面」的快照，由 Kotlin 侧截好传进来。
+
+uniform shader uContent;
+
+uniform float2 uSize;        // 底栏像素尺寸
+uniform float2 uOffset;      // 底栏在快照里的左上角坐标（像素）
+uniform float2 uMax;         // 快照位图像素尺寸，用来夹取采样点
+uniform float uScale;        // 快照相对屏幕的缩放（0.5 = 半分辨率截图）
+uniform float uCorner;       // 圆角半径（像素）
+uniform float uBlur;         // 模糊半径（像素）
+uniform float uRefraction;   // 折射强度 0..1
+uniform float uDispersion;   // 色散强度 0..1
+uniform float uHighlight;    // 高光强度 0..1
+uniform float4 uTint;        // 玻璃染色，alpha 当磨砂浓度
+
+// 圆角矩形的有向距离：内部为负，边界为 0，外部为正
+float sdRoundBox(float2 p, float2 half1, float r) {
+    float2 q = abs(p) - half1 + r;
+    return length(max(q, float2(0.0))) + min(max(q.x, q.y), 0.0) - r;
+}
+
+// 用有限差分求梯度当法线；越靠近边缘权重越大
+float2 edgeNormal(float2 coord) {
+    float2 half1 = uSize * 0.5;
+    float2 local = coord - half1;
+    float r = max(uCorner, 1.0);
+    float e = 1.0;
+    float dx = sdRoundBox(local + float2(e, 0.0), half1, r)
+             - sdRoundBox(local - float2(e, 0.0), half1, r);
+    float dy = sdRoundBox(local + float2(0.0, e), half1, r)
+             - sdRoundBox(local - float2(0.0, e), half1, r);
+    float2 n = normalize(float2(dx, dy) + float2(0.00001, 0.00001));
+    float d = sdRoundBox(local, half1, r);
+    float t = saturate(1.0 + d / r);
+    return n * t;
+}
+
+half4 main(float2 coord) {
+    float2 p = (coord + uOffset) * uScale;
+    float2 n = edgeNormal(coord);
+
+    // 折射：边缘处采样点向外弯一点，制造「玻璃边缘放大」的错觉
+    float2 warp = n * uRefraction * 22.0;
+
+    // 色散：三个通道给不同的弯折量
+    float3 shift = float3(
+        1.0 + uDispersion * 0.7,
+        1.0,
+        1.0 - uDispersion * 0.7
+    );
+
+    float2 uvR = clamp(p + warp * shift.r, float2(0.0), uMax);
+    float2 uvG = clamp(p + warp * shift.g, float2(0.0), uMax);
+    float2 uvB = clamp(p + warp * shift.b, float2(0.0), uMax);
+
+    // 9 tap 模糊：沿圆环取 8 个点 + 中心
+    half4 sum = uContent.eval(uvG);
+    float r = max(uBlur, 0.0);
+    for (int i = 0; i < 8; i++) {
+        float a = float(i) * 0.7853982;   // PI / 4
+        float2 dir = float2(cos(a), sin(a)) * r;
+        sum += uContent.eval(clamp(uvG + dir, float2(0.0), uMax));
+    }
+    half3 blurred = (sum / 9.0).rgb;
+
+    // 用色散后的两个通道替换 R / B，做出彩虹边
+    half3 glass = half3(uContent.eval(uvR).r, blurred.g, uContent.eval(uvB).b);
+
+    // 磨砂：把画面往主题色里拉
+    half3 tintRgb = half3(uTint.rgb);
+    half tintAlpha = half(uTint.a);
+    half3 base = mix(glass, tintRgb, tintAlpha);
+
+    // 边缘高光：一束斜上方的光
+    float rim = saturate(dot(n, normalize(float2(-0.7, -0.7))));
+    float spec = pow(rim, 3.0) * uHighlight;
+
+    return half4(base + half3(spec), 1.0);
+}
