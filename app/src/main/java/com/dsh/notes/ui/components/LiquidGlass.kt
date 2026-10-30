@@ -56,6 +56,14 @@ class BackdropState internal constructor(val layer: GraphicsLayer) {
     var scale: Float by mutableStateOf(1f)
         internal set
 
+    /** 这一帧是从哪儿来的：layer / pixelcopy / none，排查用 */
+    var engine: String by mutableStateOf("none")
+        internal set
+
+    /** 最近一次失败的原因 */
+    var reason: String? by mutableStateOf(null)
+        internal set
+
     internal fun clear() {
         bitmap = null
         sizePx = IntSize.Zero
@@ -94,47 +102,112 @@ fun Modifier.captureBackdrop(state: BackdropState): Modifier = drawWithContent {
  * 停下来就是准的。对底栏这种静态区域足够了。
  */
 @Composable
-fun CaptureBackdropEffect(state: BackdropState, key: Any?) {
+fun CaptureBackdropEffect(state: BackdropState, key: Any?, activity: android.app.Activity? = null) {
     LaunchedEffect(key) {
         // 注意：这里**不能** clear()。清掉会让底栏瞬间退回兜底底色，
         // 切页时就是那一下「闪出被遮住的内容」。旧图用到新图来为止。
+        var round = 0
         while (true) {
             withFrameNanos { }
+            var captured: Bitmap? = null
+
+            // 路线一：Compose 自己的图层回读
             val layer = state.layer
             val size = layer.size
             if (size.width > 0 && size.height > 0) {
                 runCatching {
                     val full = layer.toImageBitmap()
-                    // 全屏 ARGB_8888 一次就是 10MB 上下，隔一会儿截一次已经够贵，
-                    // 存下来和采样都用半分辨率 —— 玻璃本来就是模糊的，看不出来。
                     val raw = full.asAndroidBitmap()
                     val soft = if (raw.config == Bitmap.Config.HARDWARE) {
                         raw.copy(Bitmap.Config.ARGB_8888, false) ?: raw
                     } else {
                         raw
                     }
-                    val half = Bitmap.createScaledBitmap(
+                    Bitmap.createScaledBitmap(
                         soft,
                         (soft.width / 2).coerceAtLeast(1),
                         (soft.height / 2).coerceAtLeast(1),
                         true
                     )
-                    Triple(half, IntSize(half.width, half.height), 0.5f)
-                }.getOrNull()?.let { (bitmap, pixels, scale) ->
-                    // 截出来是纯黑的说明这次没采到（图层还没内容 / 被合成器丢了）。
-                    // 与其拿一张黑图去当玻璃，不如当作没有，退回半透明底色 ——
-                    // 至少那样背后是真的能看见。
-                    if (!looksBlank(bitmap)) {
-                        state.bitmap = bitmap.asImageBitmap()
-                        state.sizePx = pixels
-                        state.scale = scale
+                }.onFailure {
+                    state.reason = "layer: " + (it.message ?: it::class.java.simpleName)
+                }.getOrNull()?.let { bmp ->
+                    if (!looksBlank(bmp)) {
+                        captured = bmp
+                        state.engine = "layer"
+                    } else {
+                        state.reason = "layer: 截出来是空白"
                     }
                 }
             }
-            delay(1200)
+
+            // 路线二：图层回读拿不到就直接从窗口拷屏幕上真实像素。
+            // 慢一些（要过一次合成器），但几乎在所有机型上都可用。
+            if (captured == null && activity != null) {
+                runCatching { captureWindow(activity, 0.5f) }
+                    .onFailure {
+                        state.reason = "pixelcopy: " + (it.message ?: it::class.java.simpleName)
+                    }
+                    .getOrNull()?.let { bmp ->
+                        captured = bmp
+                        state.engine = "pixelcopy"
+                    }
+            }
+
+            captured?.let {
+                if (!looksBlank(it)) {
+                    state.bitmap = it.asImageBitmap()
+                    state.sizePx = IntSize(it.width, it.height)
+                    state.scale = 0.5f
+                }
+            }
+            round++
+            delay(if (round < 3) 200 else 1200)
         }
     }
 }
+
+/** 直接从窗口抓一帧（包含当前界面，所以底栏会出现在里面，但底栏很淡，反馈可忽略） */
+private suspend fun captureWindow(activity: android.app.Activity, scale: Float): Bitmap? =
+    kotlinx.coroutines.suspendCancellableCoroutine { cont ->
+        val view = activity.window?.decorView
+        val width = view?.width ?: 0
+        val height = view?.height ?: 0
+        if (width <= 0 || height <= 0) {
+            cont.resumeWith(Result.success(null))
+            return@suspendCancellableCoroutine
+        }
+        val target = Bitmap.createBitmap(
+            (width * scale).toInt().coerceAtLeast(1),
+            (height * scale).toInt().coerceAtLeast(1),
+            Bitmap.Config.ARGB_8888
+        )
+        val rect = android.graphics.Rect(0, 0, width, height)
+        var resumed = false
+        runCatching {
+            android.view.PixelCopy.request(
+                activity.window,
+                rect,
+                target,
+                { result ->
+                    if (!resumed) {
+                        resumed = true
+                        cont.resumeWith(
+                            Result.success(
+                                if (result == android.view.PixelCopy.SUCCESS) target else null
+                            )
+                        )
+                    }
+                },
+                android.os.Handler(android.os.Looper.getMainLooper())
+            )
+        }.onFailure {
+            if (!resumed) {
+                resumed = true
+                cont.resumeWith(Result.success(null))
+            }
+        }
+    }
 
 /** 抽样判断这张图是不是「什么都没有」 */
 private fun looksBlank(bitmap: Bitmap): Boolean {
@@ -210,9 +283,9 @@ fun rememberLiquidGlassBrush(
     val statusText = when {
         Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ->
             "玻璃：系统低于 Android 13，已退回渐变"
-        bitmap == null -> "玻璃：等待首帧快照…"
+        bitmap == null -> "玻璃：等待首帧快照… ${state.reason.orEmpty()}".trim()
         brush == null -> "玻璃：着色器不可用 —— ${reason ?: "未知原因"}"
-        else -> "玻璃：着色器运行中"
+        else -> "玻璃：着色器运行中（${state.engine}）"
     }
     SideEffect { GlassDiagnostics.status = statusText }
 

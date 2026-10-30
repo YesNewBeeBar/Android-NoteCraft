@@ -172,7 +172,15 @@ fun NoteCraftApp(
 
         // 底栏背后的画面：先把内容录进 GraphicsLayer，再截成位图交给着色器
         val backdrop = rememberBackdropState()
-        CaptureBackdropEffect(backdrop, currentRoute)
+        val hostActivity = remember(context) {
+            var cursor: android.content.Context? = context
+            while (cursor is android.content.ContextWrapper) {
+                if (cursor is android.app.Activity) break
+                cursor = cursor.baseContext
+            }
+            cursor as? android.app.Activity
+        }
+        CaptureBackdropEffect(backdrop, currentRoute, hostActivity)
 
         // 拖动选择：按住底栏，出现一个玻璃球跟着手指走，
         // 球罩住哪个 tab，松手就切到哪个。让手势方向和「看到的东西」一致。
@@ -464,29 +472,36 @@ fun NoteCraftApp(
                             }
                         }
 
-                        // 跟着手指走的玻璃球，罩住哪个 tab 就切哪个
-                        if (settings.experimentalGlass && lensIndex >= 0 && barSize.width > 0f) {
-                            val radiusDp = with(density) { lensRadiusPx.toDp() }
-                            Box(
-                                modifier = Modifier
-                                    .offset(
-                                        x = with(density) { animatedLensX.toDp() } - radiusDp,
-                                        y = with(density) { (barSize.height / 2f).toDp() } - radiusDp
-                                    )
-                                    .size(radiusDp * 2)
-                                    .graphicsLayer {
-                                        scaleX = lensScale
-                                        scaleY = lensScale
-                                    }
-                                    .clip(CircleShape)
-                                    .liquidGlassBackground(
-                                        brush = lensBrush,
-                                        fallbackTop = glassTop,
-                                        fallbackBottom = glassBottom,
-                                        edge = glassEdge
-                                    )
-                            )
-                        }
+                    }
+
+                    /*
+                     * 玻璃球画在**胶囊外面**。
+                     *
+                     * 之前它和底栏在同一个被 clip 的 Box 里，圆角把它切掉一截 ——
+                     * 看截图就是「露出右边一个边」。挪出来之后直径可以比底栏还高，
+                     * 像参考视频里那样浮在胶囊上。
+                     */
+                    if (settings.experimentalGlass && lensIndex >= 0 && barSize.width > 0f) {
+                        val radiusDp = with(density) { lensRadiusPx.toDp() }
+                        Box(
+                            modifier = Modifier
+                                .offset(
+                                    x = 10.dp + with(density) { animatedLensX.toDp() } - radiusDp,
+                                    y = 6.dp + with(density) { (barSize.height / 2f).toDp() } - radiusDp
+                                )
+                                .size(radiusDp * 2)
+                                .graphicsLayer {
+                                    scaleX = lensScale
+                                    scaleY = lensScale
+                                }
+                                .clip(CircleShape)
+                                .liquidGlassBackground(
+                                    brush = lensBrush,
+                                    fallbackTop = glassTop,
+                                    fallbackBottom = glassBottom,
+                                    edge = glassEdge
+                                )
+                        )
                     }
                 }
             }
