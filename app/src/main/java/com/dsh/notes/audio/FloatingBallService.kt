@@ -1,5 +1,6 @@
 package com.dsh.notes.audio
 
+import android.animation.ObjectAnimator
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -67,6 +68,9 @@ class FloatingBallService : Service() {
     /** 当前已经应用到视图上的值，预览时以它为基准，避免每次去磁盘读设置 */
     private var appliedSizeDp = 56
     private var appliedAlpha = 0.9f
+
+    /** 录音时的呼吸动画 */
+    private var pulse: android.animation.ObjectAnimator? = null
 
     /** 自定义图案的文件修改时间；0 表示当前是内置麦克风图标 */
     private var loadedIconStamp = 0L
@@ -315,9 +319,30 @@ class FloatingBallService : Service() {
         expanded = false
     }
 
+    /** 录音时轻微呼吸：让「正在录」在视觉上持续提醒 */
+    private fun updatePulse(recording: Boolean) {
+        val view = ball ?: return
+        if (recording && pulse == null) {
+            pulse = ObjectAnimator.ofFloat(view, "scaleX", 1f, 1.09f).apply {
+                duration = 850
+                repeatMode = ObjectAnimator.REVERSE
+                repeatCount = ObjectAnimator.INFINITE
+                addUpdateListener { view.scaleY = view.scaleX }
+                start()
+            }
+        } else if (!recording && pulse != null) {
+            pulse?.cancel()
+            pulse = null
+            view.scaleX = 1f
+            view.scaleY = 1f
+        }
+    }
+
     private fun removeAll() {
         collapse()
         ball?.let { view -> runCatching { windowManager?.removeView(view) } }
+        pulse?.cancel()
+        pulse = null
         ball = null
         ballParams = null
         panel = null
@@ -406,6 +431,8 @@ class FloatingBallService : Service() {
             RecordingService.state.collect { state ->
                 applyStateToButtons(state)
                 // 录音中把默认皮肤染红。用相册自定义图案的不染色
+                updatePulse(state.phase == RecorderPhase.RECORDING)
+
                 if (loadedIconStamp == 0L) {
                     ball?.setBackgroundResource(
                         if (state.phase == RecorderPhase.RECORDING) {
