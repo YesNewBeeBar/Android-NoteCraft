@@ -81,28 +81,70 @@ class NotesExporter(
         val target = resolveTargetDir(root, subDir)
 
         val baseName = FileNameTemplate.build(settings.fileNamePattern, note)
-        val displayName = "$baseName.md"
+        var displayName = "$baseName.md"
+        var effectiveNote = note
+
+        /*
+         * 双向同步的落点全在这里。
+         *
+         * 文件末尾埋了正文的哈希（见 [ObsidianSync]），于是能分出三种情况：
+         *  · 哈希对得上 —— 没人动过，原地覆盖；
+         *  · 对不上     —— 在 Obsidian 里改过：先把改动读回内置笔记，再另存一个新文件，
+         *                  原来那份原封不动（用户要求保留）；
+         *  · 没有哈希   —— 旧版本导出的文件，不认识基线，只另存不回读，
+         *                  免得把后来整理好的正文回退成旧内容。
+         */
+        target.findFile(displayName)?.takeIf { it.isFile }?.let { existing ->
+            val old = readText(existing.uri)
+            when {
+                old == null -> Unit
+                ObsidianSync.isUntouched(old) -> existing.delete()
+                else -> {
+                    if (ObsidianSync.split(old).second != null) {
+                        val parsed = ObsidianSync.parse(old, note.title)
+                        runCatching {
+                            repository.patch(note.id) { current ->
+                                current.copy(
+                                    title = parsed.title.ifBlank { current.title },
+                                    summary = parsed.summary.ifBlank { current.summary },
+                                    refinedMarkdown = parsed.refinedMarkdown
+                                        .ifBlank { current.refinedMarkdown }
+                                )
+                            }
+                        }
+                        effectiveNote = runCatching { repository.get(note.id) }.getOrNull() ?: note
+                    }
+                    displayName = nextFreeName(target, baseName)
+                }
+            }
+        }
 
         // Obsidian 那一层：正文里的笔记标题变双链、长引用折叠、末尾挂相关笔记。
         // 全是本地计算，不额外调 AI；笔记库为空时自动退化成原文。
         val allNotes = runCatching { repository.listAllOnce() }.getOrDefault(emptyList())
-        val related = runCatching { RelatedNotes.rank(note, allNotes) }.getOrDefault(emptyList())
+        val related = runCatching { RelatedNotes.rank(effectiveNote, allNotes) }.getOrDefault(emptyList())
+        // 已经把 .md 放进这个目录的笔记，标题也算双链候选 ——
+        // 但只认这一层，不递归进子文件夹（用户明确说不做跨文件夹扫描）
+        val siblingTitles = runCatching {
+            target.listFiles()
+                .filter { it.isFile && it.name?.endsWith(".md", ignoreCase = true) == true }
+                .mapNotNull { it.name?.removeSuffix(".md")?.removeSuffix(".MD") }
+        }.getOrDefault(emptyList())
         val content = ObsidianBuilder.enhance(
-            content = MarkdownBuilder.buildWithAudioHint(note, includeTranscript),
-            selfTitle = note.title,
-            otherTitles = allNotes.map { it.title }.filter { it.isNotBlank() },
+            content = MarkdownBuilder.buildWithAudioHint(effectiveNote, includeTranscript),
+            selfTitle = effectiveNote.title,
+            otherTitles = allNotes.map { it.title }.filter { it.isNotBlank() } + siblingTitles,
             relatedTitles = related.map { it.title }
         )
-
-        // 同名文件直接覆盖：同一条笔记重复导出不应该堆出一串 (1)(2)
-        target.findFile(displayName)?.takeIf { it.isFile }?.delete()
+        // 贴上哈希锚点，下次导出才知道这份文件有没有被人改过
+        val finalContent = ObsidianSync.withFooter(content)
 
         val document = target.createFile("text/markdown", displayName)
             ?: target.createFile("text/plain", displayName)
             ?: throw ExportException("在「${target.name}」里创建文件失败")
 
         context.contentResolver.openOutputStream(document.uri)?.use { output ->
-            output.write(content.toByteArray(Charsets.UTF_8))
+            output.write(finalContent.toByteArray(Charsets.UTF_8))
             output.flush()
         } ?: throw ExportException("写入文件失败")
 
@@ -229,6 +271,22 @@ class NotesExporter(
     private fun buildRelativePath(subDir: String, fileName: String): String {
         val clean = subDir.trim().trim('/')
         return if (clean.isBlank()) fileName else "$clean/$fileName"
+    }
+
+    /** 读回已导出的文件；读不到就返回 null（当作「没法判断」） */
+    private fun readText(uri: Uri): String? = runCatching {
+        context.contentResolver.openInputStream(uri)?.use {
+            it.readBytes().toString(Charsets.UTF_8)
+        }
+    }.getOrNull()
+
+    /** 原文件要保留时，另找一个没被占用的名字 */
+    private fun nextFreeName(dir: DocumentFile, baseName: String): String {
+        for (i in 2..99) {
+            val candidate = "$baseName ($i).md"
+            if (dir.findFile(candidate) == null) return candidate
+        }
+        return "$baseName (${System.currentTimeMillis()}).md"
     }
 
     /** 查看这条笔记导出的文件还在不在 */

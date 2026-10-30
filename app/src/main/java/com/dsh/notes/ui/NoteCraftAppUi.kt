@@ -232,10 +232,10 @@ fun NoteCraftApp(
                 sizePx = barSize,
                 cornerPx = with(density) { barCorner.toPx() },
                 tint = glassTint,
-                blurPx = with(density) { (if (isLiquid) 6.dp else 22.dp).toPx() },
-                refraction = if (isLiquid) 2.4f else 0f,
-                dispersion = if (isLiquid) 1f else 0f,
-                highlight = if (isLiquid) 0.95f else 0.05f
+                blurPx = with(density) { (if (isLiquid) 14.dp else 22.dp).toPx() },
+                refraction = if (isLiquid) 1.6f else 0f,
+                dispersion = if (isLiquid) 0.18f else 0f,
+                highlight = if (isLiquid) 0.7f else 0.05f
             )
 
             Scaffold(
