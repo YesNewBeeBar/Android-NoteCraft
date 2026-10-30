@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.WindowInsets
@@ -54,6 +55,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -79,7 +81,9 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.dsh.notes.data.GLASS_LIQUID
 import com.dsh.notes.ui.components.CaptureBackdropEffect
+import com.dsh.notes.ui.components.GlassDiagnostics
 import com.dsh.notes.ui.components.UpdateDialog
+import com.dsh.notes.ui.components.backdropGlass
 import com.dsh.notes.ui.components.captureBackdrop
 import com.dsh.notes.ui.components.liquidGlassBackground
 import com.dsh.notes.ui.components.rememberBackdropState
@@ -170,17 +174,12 @@ fun NoteCraftApp(
             }
         }
 
-        // 底栏背后的画面：先把内容录进 GraphicsLayer，再截成位图交给着色器
+        // 底栏背后的画面：内容录进 GraphicsLayer，底栏用 RenderEffect 实时模糊它
         val backdrop = rememberBackdropState()
-        val hostActivity = remember(context) {
-            var cursor: android.content.Context? = context
-            while (cursor is android.content.ContextWrapper) {
-                if (cursor is android.app.Activity) break
-                cursor = cursor.baseContext
-            }
-            cursor as? android.app.Activity
+        SideEffect {
+            GlassDiagnostics.status =
+                "玻璃：实时模糊（RenderEffect），不是截图"
         }
-        CaptureBackdropEffect(backdrop, currentRoute, hostActivity)
 
         // 拖动选择：按住底栏，出现一个玻璃球跟着手指走，
         // 球罩住哪个 tab，松手就切到哪个。让手势方向和「看到的东西」一致。
@@ -445,11 +444,22 @@ fun NoteCraftApp(
                                     coords.size.height.toFloat()
                                 )
                             }
-                            .liquidGlassBackground(
-                                brush = if (settings.experimentalGlass) glassBrush else null,
-                                fallbackTop = glassTop,
-                                fallbackBottom = glassBottom,
-                                edge = glassEdge
+                            .then(
+                                if (settings.experimentalGlass) {
+                                    Modifier.backdropGlass(
+                                        state = backdrop,
+                                        originX = barLeftPx,
+                                        originY = barTopPx,
+                                        blurPx = with(density) {
+                                            (if (isLiquid) 9.dp else 24.dp).toPx()
+                                        },
+                                        tint = glassTint,
+                                        edge = glassEdge,
+                                        fallback = glassBottom
+                                    )
+                                } else {
+                                    Modifier.background(MaterialTheme.colorScheme.surface)
+                                }
                             )
                     ) {
                         NavigationBar(
@@ -495,11 +505,14 @@ fun NoteCraftApp(
                                     scaleY = lensScale
                                 }
                                 .clip(CircleShape)
-                                .liquidGlassBackground(
-                                    brush = lensBrush,
-                                    fallbackTop = glassTop,
-                                    fallbackBottom = glassBottom,
-                                    edge = glassEdge
+                                .backdropGlass(
+                                    state = backdrop,
+                                    originX = barLeftPx + animatedLensX - lensRadiusPx,
+                                    originY = barTopPx + barSize.height / 2f - lensRadiusPx,
+                                    blurPx = with(density) { 2.dp.toPx() },
+                                    tint = glassTint,
+                                    edge = glassEdge,
+                                    fallback = glassBottom
                                 )
                         )
                     }

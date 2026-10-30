@@ -16,12 +16,15 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.ShaderBrush
+import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
@@ -361,6 +364,64 @@ private fun buildGlassShader(
  * 底栏背景：有画笔就走玻璃，没有就退回渐变。
  * 两种情况都补一条顶边高光，否则玻璃的「边」会糊在背景里。
  */
+/**
+ * 底栏/玻璃球的玻璃底。
+ *
+ * **不截图**。内容已经录进 [BackdropState.layer]，这里给这个图层挂一个
+ * `RenderEffect` 模糊，再原样画一遍、由调用方的 `clip()` 裁成底栏形状。
+ *
+ * 这就是 Flutter `BackdropFilter` 在 Android 上的等价物：
+ *  · 采样的是当帧真实内容，没有滞后
+ *  · 图层里没有底栏自己，不存在「越叠越脏」的正反馈
+ *  · 全程 GPU，不需要每隔一段时间做一次全屏回读
+ *
+ * @param originX/originY 这块玻璃在整屏里的位置：图层是整屏坐标，
+ *        而 DrawScope 的原点在这块玻璃的左上角，要平移回去才能对齐。
+ */
+fun Modifier.backdropGlass(
+    state: BackdropState,
+    originX: Float,
+    originY: Float,
+    blurPx: Float,
+    tint: Color,
+    edge: Color,
+    fallback: Color
+): Modifier = drawBehind {
+    val layer = state.layer
+    var drawn = false
+    if (layer.size.width > 0 && layer.size.height > 0) {
+        drawn = runCatching {
+            layer.renderEffect = BlurEffect(
+                radiusX = blurPx,
+                radiusY = blurPx,
+                edgeTreatment = TileMode.Clamp
+            )
+            translate(left = -originX, top = -originY) {
+                drawLayer(layer)
+            }
+            layer.renderEffect = null
+            true
+        }.getOrDefault(false)
+        if (!drawn) {
+            // 出岔子时把渲染效果清掉，别把整个图层留在模糊状态
+            runCatching { layer.renderEffect = null }
+        }
+    }
+    // 染色：玻璃得有自己的颜色，否则只是「能看见背景」的透明洞
+    drawRect(tint)
+    if (!drawn) {
+        // 连图层都没有（第一帧）：至少给个能看见背景的浅浅一层
+        drawRect(fallback)
+    }
+    val stroke = 1.dp.toPx()
+    drawLine(
+        color = edge,
+        start = Offset(0f, stroke / 2f),
+        end = Offset(size.width, stroke / 2f),
+        strokeWidth = stroke
+    )
+}
+
 fun Modifier.liquidGlassBackground(
     brush: Brush?,
     fallbackTop: Color,
