@@ -435,8 +435,8 @@ fun Modifier.backdropGlass(
                 }
                 clipPath(ring) {
                     scale(
-                        scaleX = 1.06f,
-                        scaleY = 1.06f,
+                        scaleX = 1.10f,
+                        scaleY = 1.10f,
                         pivot = center
                     ) {
                         translate(left = -originX, top = -originY) {

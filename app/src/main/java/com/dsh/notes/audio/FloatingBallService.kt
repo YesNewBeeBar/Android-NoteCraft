@@ -331,6 +331,8 @@ class FloatingBallService : Service() {
     private fun collapse() {
         val panelView = panel ?: return
         if (panelView.parent != null) {
+            // 先掐掉正在跑的展开动画，否则两边抢同一组属性
+            panelView.animate().cancel()
             // 收回去：往球的方向缩，缩完再真正移除
             panelView.animate()
                 .scaleX(0.12f)
@@ -338,7 +340,11 @@ class FloatingBallService : Service() {
                 .setDuration(160)
                 .setInterpolator(android.view.animation.AccelerateInterpolator())
                 .withEndAction {
-                    runCatching { windowManager?.removeView(panelView) }
+                    // 这 160ms 里如果状态又变成「展开」，说明它又被打开了，
+                    // 此时代码已经把视图恢复成展开态 —— 再删就会「闪一下伸出后的样子」。
+                    if (!expanded) {
+                        runCatching { windowManager?.removeView(panelView) }
+                    }
                 }
                 .start()
         }

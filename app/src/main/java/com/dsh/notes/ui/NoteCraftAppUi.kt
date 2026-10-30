@@ -262,8 +262,8 @@ fun NoteCraftApp(
             val animatedLensX by androidx.compose.animation.core.animateFloatAsState(
                 targetValue = lensCenterPx,
                 animationSpec = androidx.compose.animation.core.spring(
-                    dampingRatio = 0.42f,
-                    stiffness = 380f
+                    dampingRatio = 0.82f,
+                    stiffness = 520f
                 ),
                 label = "lensX"
             )
@@ -457,7 +457,7 @@ fun NoteCraftApp(
                                         edge = glassEdge,
                                         fallback = glassBottom,
                                         cornerPx = with(density) { barCorner.toPx() },
-                                        rimPx = with(density) { 10.dp.toPx() }
+                                        rimPx = with(density) { 14.dp.toPx() }
                                     )
                                 } else {
                                     Modifier.background(MaterialTheme.colorScheme.surface)
@@ -492,8 +492,11 @@ fun NoteCraftApp(
                      * 之前它和底栏在同一个被 clip 的 Box 里，圆角把它切掉一截 ——
                      * 看截图就是「露出右边一个边」。挪出来之后直径可以比底栏还高，
                      * 像参考视频里那样浮在胶囊上。
+                     *
+                     * 特殊效果关掉时球照样出现（它是横滑切换的指示器，不是装饰），
+                     * 只是退化成一块实心圆。
                      */
-                    if (settings.experimentalGlass && lensIndex >= 0 && barSize.width > 0f) {
+                    if (lensIndex >= 0 && barSize.width > 0f) {
                         val radiusDp = with(density) { lensRadiusPx.toDp() }
                         Box(
                             modifier = Modifier
@@ -507,16 +510,25 @@ fun NoteCraftApp(
                                     scaleY = lensScale
                                 }
                                 .clip(CircleShape)
-                                .backdropGlass(
-                                    state = backdrop,
-                                    originX = barLeftPx + animatedLensX - lensRadiusPx,
-                                    originY = barTopPx + barSize.height / 2f - lensRadiusPx,
-                                    blurPx = with(density) { 2.dp.toPx() },
-                                    tint = glassTint,
-                                    edge = glassEdge,
-                                    fallback = glassBottom,
-                                    cornerPx = lensRadiusPx,
-                                    rimPx = with(density) { 9.dp.toPx() }
+                                .then(
+                                    if (settings.experimentalGlass) {
+                                        Modifier.backdropGlass(
+                                            state = backdrop,
+                                            originX = barLeftPx + animatedLensX - lensRadiusPx,
+                                            originY = barTopPx + barSize.height / 2f - lensRadiusPx,
+                                            blurPx = with(density) { 2.dp.toPx() },
+                                            tint = glassTint,
+                                            edge = glassEdge,
+                                            fallback = glassBottom,
+                                            cornerPx = lensRadiusPx,
+                                            rimPx = with(density) { 12.dp.toPx() }
+                                        )
+                                    } else {
+                                        Modifier.background(
+                                            MaterialTheme.colorScheme.primaryContainer
+                                                .copy(alpha = 0.94f)
+                                        )
+                                    }
                                 )
                         )
                     }
