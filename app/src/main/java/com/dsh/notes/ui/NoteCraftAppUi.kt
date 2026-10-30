@@ -455,7 +455,9 @@ fun NoteCraftApp(
                                         },
                                         tint = glassTint,
                                         edge = glassEdge,
-                                        fallback = glassBottom
+                                        fallback = glassBottom,
+                                        cornerPx = with(density) { barCorner.toPx() },
+                                        rimPx = with(density) { 10.dp.toPx() }
                                     )
                                 } else {
                                     Modifier.background(MaterialTheme.colorScheme.surface)
@@ -512,7 +514,9 @@ fun NoteCraftApp(
                                     blurPx = with(density) { 2.dp.toPx() },
                                     tint = glassTint,
                                     edge = glassEdge,
-                                    fallback = glassBottom
+                                    fallback = glassBottom,
+                                    cornerPx = lensRadiusPx,
+                                    rimPx = with(density) { 9.dp.toPx() }
                                 )
                         )
                     }

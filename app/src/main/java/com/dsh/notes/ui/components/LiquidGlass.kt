@@ -14,16 +14,22 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.ShaderBrush
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
@@ -385,7 +391,9 @@ fun Modifier.backdropGlass(
     blurPx: Float,
     tint: Color,
     edge: Color,
-    fallback: Color
+    fallback: Color,
+    cornerPx: Float = 0f,
+    rimPx: Float = 0f
 ): Modifier = drawBehind {
     val layer = state.layer
     var drawn = false
@@ -399,6 +407,45 @@ fun Modifier.backdropGlass(
             translate(left = -originX, top = -originY) {
                 drawLayer(layer)
             }
+
+            /*
+             * 折射。
+             *
+             * 真正做折射要能采样「背后那张纹理」，但 Compose 的图层不接受自定义着色器。
+             * 退一步用几何近似：把边缘一圈的内容以中心为基准放大 6% 再画一遍，
+             * 遮罩成内侧的一圈环 —— 边缘看到的是「被放大的画面」，
+             * 这正是玻璃边缘该有的光学错觉。中间那圈不画，否则整块都糊成大图。
+             */
+            if (rimPx > 0f && size.width > rimPx * 2 && size.height > rimPx * 2) {
+                val ring = Path().apply {
+                    fillType = PathFillType.EvenOdd
+                    addRoundRect(
+                        RoundRect(
+                            0f, 0f, size.width, size.height,
+                            CornerRadius(cornerPx)
+                        )
+                    )
+                    val i = rimPx
+                    addRoundRect(
+                        RoundRect(
+                            i, i, size.width - i, size.height - i,
+                            CornerRadius((cornerPx - i).coerceAtLeast(0f))
+                        )
+                    )
+                }
+                clipPath(ring) {
+                    scale(
+                        scaleX = 1.06f,
+                        scaleY = 1.06f,
+                        pivot = center
+                    ) {
+                        translate(left = -originX, top = -originY) {
+                            drawLayer(layer)
+                        }
+                    }
+                }
+            }
+
             layer.renderEffect = null
             true
         }.getOrDefault(false)
@@ -413,11 +460,18 @@ fun Modifier.backdropGlass(
         // 连图层都没有（第一帧）：至少给个能看见背景的浅浅一层
         drawRect(fallback)
     }
-    val stroke = 1.dp.toPx()
+    // 玻璃的「厚度」：一道很细的亮边
+    val stroke = 1.5.dp.toPx()
     drawLine(
         color = edge,
         start = Offset(0f, stroke / 2f),
         end = Offset(size.width, stroke / 2f),
+        strokeWidth = stroke
+    )
+    drawLine(
+        color = edge.copy(alpha = edge.alpha * 0.5f),
+        start = Offset(0f, size.height - stroke / 2f),
+        end = Offset(size.width, size.height - stroke / 2f),
         strokeWidth = stroke
     )
 }
