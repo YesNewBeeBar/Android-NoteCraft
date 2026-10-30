@@ -569,27 +569,45 @@ fun SettingsScreen(
                 title = "转写语言",
                 subtitle = "告诉云端转写这段音频说的是哪种语言"
             ) {
+                val preset = listOf("zh", "en", "")
+                val isCustom = settings.cloudAsrLanguage !in preset
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf(
                         "中文" to "zh",
                         "英文" to "en",
-                        "自动" to ""
+                        "自动" to "",
+                        "其他" to "ja"
                     ).forEach { (label, code) ->
+                        val selected = if (label == "其他") isCustom
+                        else settings.cloudAsrLanguage == code
                         FilterChip(
-                            selected = settings.cloudAsrLanguage == code,
+                            selected = selected,
                             onClick = { viewModel.setCloudAsrLanguage(code) },
                             label = { Text(label) }
                         )
                     }
                 }
                 Spacer(Modifier.height(10.dp))
-                CommittedTextField(
-                    label = "语言代码",
-                    initial = settings.cloudAsrLanguage,
-                    placeholder = "如 ja、ko；留空表示交给服务端判断",
-                    supporting = "云端接口使用 ISO-639-1 代码。本地离线识别仍按系统语言设置。",
-                    onCommit = viewModel::setCloudAsrLanguage
-                )
+                if (isCustom) {
+                    // 只有选了「其他」才露出输入框，平时就一个三选一，不再重复
+                    CommittedTextField(
+                        label = "语言代码",
+                        initial = settings.cloudAsrLanguage,
+                        placeholder = "如 ja、ko",
+                        supporting = "ISO-639-1 代码。本地离线识别仍按系统语言设置。",
+                        onCommit = viewModel::setCloudAsrLanguage
+                    )
+                } else {
+                    Text(
+                        text = if (settings.cloudAsrLanguage.isBlank()) {
+                            "自动：不发送语言参数，交给服务端判断。"
+                        } else {
+                            "当前发送 language=${settings.cloudAsrLanguage}。"
+                        } + " 本地离线识别仍按系统语言设置。",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
 
             // ================= 悬浮球 =================

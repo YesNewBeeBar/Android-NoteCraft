@@ -308,34 +308,51 @@ class FloatingBallService : Service() {
             runCatching { wm.updateViewLayout(panelView, lp) }
             panelParams = lp
         }
+
+        /*
+         * 「伸出来」：从球贴着的那条边往外长，不是原地淡入。
+         * 贴右边就从左端长出去，贴左边就从右端长出去 —— 和球的方向一致。
+         */
+        panelView.post {
+            panelView.pivotX = if (onRight) 0f else panelView.width.toFloat()
+            panelView.pivotY = panelView.height / 2f
+            panelView.scaleX = 0.12f
+            panelView.alpha = 0f
+            panelView.animate()
+                .scaleX(1f)
+                .alpha(appliedAlpha)
+                .setDuration(220)
+                .setInterpolator(android.view.animation.DecelerateInterpolator())
+                .start()
+        }
         expanded = true
     }
 
     private fun collapse() {
         val panelView = panel ?: return
         if (panelView.parent != null) {
-            runCatching { windowManager?.removeView(panelView) }
+            // 收回去：往球的方向缩，缩完再真正移除
+            panelView.animate()
+                .scaleX(0.12f)
+                .alpha(0f)
+                .setDuration(160)
+                .setInterpolator(android.view.animation.AccelerateInterpolator())
+                .withEndAction {
+                    runCatching { windowManager?.removeView(panelView) }
+                }
+                .start()
         }
         expanded = false
     }
 
-    /** 录音时轻微呼吸：让「正在录」在视觉上持续提醒 */
+    /** 录音时不再做「呼吸」脉动：球只是变红，保持静止 */
     private fun updatePulse(recording: Boolean) {
         val view = ball ?: return
-        if (recording && pulse == null) {
-            pulse = ObjectAnimator.ofFloat(view, "scaleX", 1f, 1.09f).apply {
-                duration = 850
-                repeatMode = ObjectAnimator.REVERSE
-                repeatCount = ObjectAnimator.INFINITE
-                addUpdateListener { view.scaleY = view.scaleX }
-                start()
-            }
-        } else if (!recording && pulse != null) {
-            pulse?.cancel()
-            pulse = null
-            view.scaleX = 1f
-            view.scaleY = 1f
-        }
+        pulse?.cancel()
+        pulse = null
+        view.scaleX = 1f
+        view.scaleY = 1f
+        if (recording) view.alpha = 1f
     }
 
     private fun removeAll() {
