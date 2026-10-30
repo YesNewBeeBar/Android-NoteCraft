@@ -96,7 +96,8 @@ fun Modifier.captureBackdrop(state: BackdropState): Modifier = drawWithContent {
 @Composable
 fun CaptureBackdropEffect(state: BackdropState, key: Any?) {
     LaunchedEffect(key) {
-        state.clear()
+        // 注意：这里**不能** clear()。清掉会让底栏瞬间退回兜底底色，
+        // 切页时就是那一下「闪出被遮住的内容」。旧图用到新图来为止。
         while (true) {
             withFrameNanos { }
             val layer = state.layer
@@ -118,16 +119,40 @@ fun CaptureBackdropEffect(state: BackdropState, key: Any?) {
                         (soft.height / 2).coerceAtLeast(1),
                         true
                     )
-                    Triple(half.asImageBitmap(), IntSize(half.width, half.height), 0.5f)
-                }.getOrNull()?.let { (image, pixels, scale) ->
-                    state.bitmap = image
-                    state.sizePx = pixels
-                    state.scale = scale
+                    Triple(half, IntSize(half.width, half.height), 0.5f)
+                }.getOrNull()?.let { (bitmap, pixels, scale) ->
+                    // 截出来是纯黑的说明这次没采到（图层还没内容 / 被合成器丢了）。
+                    // 与其拿一张黑图去当玻璃，不如当作没有，退回半透明底色 ——
+                    // 至少那样背后是真的能看见。
+                    if (!looksBlank(bitmap)) {
+                        state.bitmap = bitmap.asImageBitmap()
+                        state.sizePx = pixels
+                        state.scale = scale
+                    }
                 }
             }
             delay(1200)
         }
     }
+}
+
+/** 抽样判断这张图是不是「什么都没有」 */
+private fun looksBlank(bitmap: Bitmap): Boolean {
+    val w = bitmap.width
+    val h = bitmap.height
+    if (w <= 0 || h <= 0) return true
+    var sum = 0L
+    var count = 0
+    for (i in 0 until 8) {
+        for (j in 0 until 8) {
+            val px = bitmap.getPixel(w * i / 8, h * j / 8)
+            sum += (android.graphics.Color.red(px) +
+                android.graphics.Color.green(px) +
+                android.graphics.Color.blue(px)) / 3
+            count++
+        }
+    }
+    return count == 0 || sum / count < 8
 }
 
 /**

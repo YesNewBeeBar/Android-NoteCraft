@@ -17,6 +17,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.positionChangeIgnoreConsumed
 import androidx.compose.material3.MaterialTheme
@@ -179,15 +180,18 @@ fun NoteCraftApp(
 
         Box(modifier = Modifier.fillMaxSize().captureBackdrop(backdrop)) {
             // 玻璃配色先取出来：drawBehind 里不能调用 @Composable
-            val glassTop = MaterialTheme.colorScheme.surface.copy(alpha = 0.42f)
-            val glassBottom = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f)
-            val glassEdge = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.14f)
+            val isLiquid = settings.glassStyle == GLASS_LIQUID
             val density = LocalDensity.current
+            // 兜底底色：液态玻璃就算着色器没跑起来，也必须透（低不透明度），
+            // 不能是一块实心黑 —— 那是之前「太黑」的根源
+            val scrimAlpha = if (isLiquid) 0.12f else 0.55f
+            val glassTop = MaterialTheme.colorScheme.surface.copy(alpha = scrimAlpha * 0.6f)
+            val glassBottom = MaterialTheme.colorScheme.surface.copy(alpha = scrimAlpha)
+            val glassEdge = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.14f)
 
             // 两种玻璃走同一个着色器，只换参数：
             //   毛玻璃 = 大模糊 + 几乎不透明，看不出背后的细节
             //   液态玻璃 = 小模糊 + 强折射 + 强色散 + 高光，能认出背后的形状
-            val isLiquid = settings.glassStyle == GLASS_LIQUID
             val glassTint = MaterialTheme.colorScheme.surface.copy(
                 alpha = if (isLiquid) 0.10f else 0.72f
             )
@@ -233,6 +237,25 @@ fun NoteCraftApp(
                 dispersion = 0.25f,
                 highlight = 1.1f,
                 lift = 0.08f
+            )
+
+            // 球要有「水珠」的手感：位置用弹簧追过去，出现/消失用缩放，
+            // 直接硬切就是你说的「很僵硬」
+            val animatedLensX by androidx.compose.animation.core.animateFloatAsState(
+                targetValue = lensCenterPx,
+                animationSpec = androidx.compose.animation.core.spring(
+                    dampingRatio = 0.42f,
+                    stiffness = 380f
+                ),
+                label = "lensX"
+            )
+            val lensScale by androidx.compose.animation.core.animateFloatAsState(
+                targetValue = if (lensIndex >= 0) 1f else 0f,
+                animationSpec = androidx.compose.animation.core.spring(
+                    dampingRatio = 0.55f,
+                    stiffness = 600f
+                ),
+                label = "lensScale"
             )
 
             Scaffold(
@@ -426,10 +449,14 @@ fun NoteCraftApp(
                             Box(
                                 modifier = Modifier
                                     .offset(
-                                        x = with(density) { lensCenterPx.toDp() } - radiusDp,
+                                        x = with(density) { animatedLensX.toDp() } - radiusDp,
                                         y = with(density) { (barSize.height / 2f).toDp() } - radiusDp
                                     )
                                     .size(radiusDp * 2)
+                                    .graphicsLayer {
+                                        scaleX = lensScale
+                                        scaleY = lensScale
+                                    }
                                     .clip(CircleShape)
                                     .liquidGlassBackground(
                                         brush = lensBrush,
