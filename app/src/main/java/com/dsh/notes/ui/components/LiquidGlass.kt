@@ -242,14 +242,14 @@ private fun buildGlassShader(
     shader.setFloatUniform("uRefraction", refraction)
     shader.setFloatUniform("uDispersion", dispersion)
     shader.setFloatUniform("uHighlight", highlight)
-    shader.setColorUniform(
+    // uTint 是普通 float4，不是 layout(color)，只能用浮点接口塞进去；
+    // 用 setColorUniform 会抛 "non-color specific APIs"，整个着色器就废了
+    shader.setFloatUniform(
         "uTint",
-        android.graphics.Color.argb(
-            (tint.alpha * 255f).toInt().coerceIn(0, 255),
-            (tint.red * 255f).toInt().coerceIn(0, 255),
-            (tint.green * 255f).toInt().coerceIn(0, 255),
-            (tint.blue * 255f).toInt().coerceIn(0, 255)
-        )
+        tint.red,
+        tint.green,
+        tint.blue,
+        tint.alpha
     )
 
     return ShaderBrush(shader)

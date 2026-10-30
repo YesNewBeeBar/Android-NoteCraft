@@ -82,7 +82,17 @@ class NotesExporter(
 
         val baseName = FileNameTemplate.build(settings.fileNamePattern, note)
         val displayName = "$baseName.md"
-        val content = MarkdownBuilder.buildWithAudioHint(note, includeTranscript)
+
+        // Obsidian 那一层：正文里的笔记标题变双链、长引用折叠、末尾挂相关笔记。
+        // 全是本地计算，不额外调 AI；笔记库为空时自动退化成原文。
+        val allNotes = runCatching { repository.listAllOnce() }.getOrDefault(emptyList())
+        val related = runCatching { RelatedNotes.rank(note, allNotes) }.getOrDefault(emptyList())
+        val content = ObsidianBuilder.enhance(
+            content = MarkdownBuilder.buildWithAudioHint(note, includeTranscript),
+            selfTitle = note.title,
+            otherTitles = allNotes.map { it.title }.filter { it.isNotBlank() },
+            relatedTitles = related.map { it.title }
+        )
 
         // 同名文件直接覆盖：同一条笔记重复导出不应该堆出一串 (1)(2)
         target.findFile(displayName)?.takeIf { it.isFile }?.delete()

@@ -1,6 +1,7 @@
 package com.dsh.notes.data
 
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 
 /**
  * 笔记仓储：只做数据搬运，业务逻辑（转写、整理）放在 pipeline 里。
@@ -39,6 +40,9 @@ class NoteRepository(
     // ---------------------------------------------------------------- 笔记
 
     fun observeAll(): Flow<List<Note>> = dao.observeAll()
+
+    /** 导出算「相关笔记」时要一次性拿到全部笔记，不能只取一帧就 Subscribe */
+    suspend fun listAllOnce(): List<Note> = dao.observeAll().first()
 
     fun observeSearch(keyword: String): Flow<List<Note>> {
         val trimmed = keyword.trim()
