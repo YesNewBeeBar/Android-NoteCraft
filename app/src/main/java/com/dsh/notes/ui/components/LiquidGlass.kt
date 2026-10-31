@@ -424,7 +424,7 @@ fun Modifier.backdropGlass(
                  * 分三层就有了连续变化的斜率 —— 越靠边压得越狠，
                  * 这正是凸透镜在边缘把画面弯折的样子。
                  */
-                val scales = floatArrayOf(1.22f, 1.14f, 1.07f)
+                val scales = floatArrayOf(1.32f, 1.20f, 1.09f)
                 scales.forEachIndexed { index, factor ->
                     val outer = rimPx * index / scales.size
                     val inner = rimPx * (index + 1) / scales.size
@@ -476,9 +476,9 @@ fun Modifier.backdropGlass(
     drawRect(
         brush = Brush.linearGradient(
             colors = listOf(
-                Color.White.copy(alpha = 0.12f),
+                Color.White.copy(alpha = 0.20f),
                 Color.Transparent,
-                Color.White.copy(alpha = 0.05f)
+                Color.White.copy(alpha = 0.10f)
             ),
             start = Offset(0f, 0f),
             end = Offset(size.width, size.height)

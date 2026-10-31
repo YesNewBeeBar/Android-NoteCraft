@@ -199,7 +199,7 @@ fun NoteCraftApp(
             //   毛玻璃 = 大模糊 + 几乎不透明，看不出背后的细节
             //   液态玻璃 = 小模糊 + 折射 + 高光，能认出背后的形状
             val glassTint = if (isLiquid) {
-                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f)
+                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.14f)
             } else {
                 MaterialTheme.colorScheme.surface.copy(alpha = 0.72f)
             }
@@ -418,7 +418,7 @@ fun NoteCraftApp(
                                         edge = glassEdge,
                                         fallback = glassBottom,
                                         cornerPx = with(density) { barCorner.toPx() },
-                                        rimPx = with(density) { 14.dp.toPx() }
+                                        rimPx = with(density) { 18.dp.toPx() }
                                     )
                                 } else {
                                     Modifier.background(MaterialTheme.colorScheme.surface)
@@ -482,7 +482,7 @@ fun NoteCraftApp(
                                             edge = glassEdge,
                                             fallback = glassBottom,
                                             cornerPx = lensRadiusPx,
-                                            rimPx = with(density) { 12.dp.toPx() }
+                                            rimPx = with(density) { 16.dp.toPx() }
                                         )
                                     } else {
                                         // 没开特殊效果也要看得见：一层很淡的对比色 + 细边。

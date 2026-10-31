@@ -83,7 +83,10 @@ class FloatingBallService : Service() {
      * 设置里的数字是「直径」的语义，但圆形的视觉重量比同尺寸的方形大得多，
      * 按原值画会显得笨重；这里统一收 0.86，设置项的含义不变。
      */
-    private fun scaledSizeDp(): Int = (appliedSizeDp * 0.86f).toInt().coerceAtLeast(32)
+    private fun scaledSizeDp(): Int =
+        // 上限收到 64：设置拉到最大时那颗球会大得像块膏药，参考实现里它只有屏幕宽度的
+        // 一小块。这里把实际尺寸和设置值解耦，设置只负责「相对大小」的意图。
+        (appliedSizeDp.coerceAtMost(64) * 0.9f).toInt().coerceAtLeast(30)
 
     /** 录音时的呼吸动画 */
     private var pulse: android.animation.ObjectAnimator? = null
@@ -307,7 +310,15 @@ class FloatingBallService : Service() {
         // 又被打开了：取消「正在收起」状态，否则动画回调会把面板删掉
         collapsing = false
         panelView.animate().cancel()
-        panelView.alpha = appliedAlpha
+        /*
+         * 关键：**加进窗口之前**就要设成「缩到最小 + 全透明」。
+         *
+         * 之前是在 post{} 里设的，而 post 要等到下一帧布局之后才跑 ——
+         * 中间那一帧面板是以完整尺寸、完整不透明度画出来的，
+         * 就是你看到的「闪一下变成展开的样子」。
+         */
+        panelView.scaleX = 0.12f
+        panelView.alpha = 0f
         val lp = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
