@@ -87,7 +87,7 @@ import com.dsh.notes.data.GLASS_FROSTED
 import com.dsh.notes.data.GLASS_LIQUID
 import com.dsh.notes.data.StorageFormat
 import com.dsh.notes.data.ThemeMode
-import com.dsh.notes.ui.components.GlassDiagnostics
+import com.dsh.notes.ui.components.UpdateDialog
 import com.dsh.notes.ui.NoteCraftViewModelFactory
 import com.dsh.notes.ui.SettingsViewModel
 import com.dsh.notes.ui.components.ThemeToggleButton
@@ -757,12 +757,6 @@ fun SettingsScreen(
                         subtitle = "边缘折射、色散和高光，能认出背后画面的形状",
                         selected = settings.glassStyle == GLASS_LIQUID,
                         onClick = { viewModel.setGlassStyle(GLASS_LIQUID) }
-                    )
-                    Text(
-                        text = GlassDiagnostics.status,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(start = 46.dp, top = 2.dp, bottom = 8.dp)
                     )
                 }
                 SwitchRow(

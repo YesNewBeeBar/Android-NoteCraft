@@ -471,6 +471,19 @@ fun Modifier.backdropGlass(
         // 连图层都没有（第一帧）：至少给个能看见背景的浅浅一层
         drawRect(fallback)
     }
+    // 镜面反光：左上到右下的柔和扫光。玻璃最容易识别的特征其实是这道光，
+    // 而不只是「透」—— 背景全黑时也只有它能说明这是一块玻璃
+    drawRect(
+        brush = Brush.linearGradient(
+            colors = listOf(
+                Color.White.copy(alpha = 0.12f),
+                Color.Transparent,
+                Color.White.copy(alpha = 0.05f)
+            ),
+            start = Offset(0f, 0f),
+            end = Offset(size.width, size.height)
+        )
+    )
     // 玻璃的「厚度」：一道很细的亮边
     val stroke = 1.5.dp.toPx()
     drawLine(

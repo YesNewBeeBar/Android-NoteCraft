@@ -82,7 +82,6 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.dsh.notes.data.GLASS_LIQUID
 import com.dsh.notes.ui.components.CaptureBackdropEffect
-import com.dsh.notes.ui.components.GlassDiagnostics
 import com.dsh.notes.ui.components.UpdateDialog
 import com.dsh.notes.ui.components.backdropGlass
 import com.dsh.notes.ui.components.captureBackdrop
@@ -177,10 +176,6 @@ fun NoteCraftApp(
 
         // 底栏背后的画面：内容录进 GraphicsLayer，底栏用 RenderEffect 实时模糊它
         val backdrop = rememberBackdropState()
-        SideEffect {
-            GlassDiagnostics.status =
-                "玻璃：实时模糊（RenderEffect），不是截图"
-        }
 
         // 拖动选择：按住底栏，出现一个玻璃球跟着手指走，
         // 球罩住哪个 tab，松手就切到哪个。让手势方向和「看到的东西」一致。
@@ -216,19 +211,6 @@ fun NoteCraftApp(
             val barCorner = 30.dp
             val barShape = remember(barCorner) { RoundedCornerShape(barCorner) }
 
-            val glassBrush = rememberLiquidGlassBrush(
-                state = backdrop,
-                offsetPx = Offset(barLeftPx, barTopPx),
-                sizePx = barSize,
-                cornerPx = with(density) { barCorner.toPx() },
-                tint = glassTint,
-                blurPx = with(density) { (if (isLiquid) 10.dp else 22.dp).toPx() },
-                refraction = if (isLiquid) 1.6f else 0f,
-                dispersion = if (isLiquid) 0.18f else 0f,
-                highlight = if (isLiquid) 0.7f else 0.05f,
-                lift = if (isLiquid) 0.05f else 0f
-            )
-
             // 拖动时那颗玻璃球：参数更「水」，边缘折射更强，罩住谁就切谁
             val lensRadiusPx = with(density) { 34.dp.toPx() }
             val lensCenterPx = if (barSize.width > 0f && lensIndex >= 0) {
@@ -236,28 +218,6 @@ fun NoteCraftApp(
             } else {
                 0f
             }
-            // 着色器的采样坐标按 12dp 一档量化：球每移动一点就重建一次 RuntimeShader 太贵，
-            // 量化之后一次拖动只重建十来次，肉眼看不出台阶
-            val lensQuantized = with(density) {
-                val step = 12.dp.toPx()
-                (lensCenterPx / step).toInt() * step
-            }
-            val lensBrush = rememberLiquidGlassBrush(
-                state = backdrop,
-                offsetPx = Offset(
-                    barLeftPx + lensQuantized - lensRadiusPx,
-                    barTopPx + barSize.height / 2f - lensRadiusPx
-                ),
-                sizePx = Size(lensRadiusPx * 2f, lensRadiusPx * 2f),
-                cornerPx = lensRadiusPx,
-                tint = glassTint,
-                blurPx = with(density) { 3.dp.toPx() },
-                refraction = 2.2f,
-                dispersion = 0.25f,
-                highlight = 1.1f,
-                lift = 0.08f
-            )
-
             // 球要有「水珠」的手感：位置用弹簧追过去，出现/消失用缩放，
             // 直接硬切就是你说的「很僵硬」
             val animatedLensX by androidx.compose.animation.core.animateFloatAsState(

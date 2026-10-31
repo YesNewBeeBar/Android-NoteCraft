@@ -77,6 +77,14 @@ class FloatingBallService : Service() {
     private var appliedSizeDp = 56
     private var appliedAlpha = 0.9f
 
+    /**
+     * 悬浮球实际画出来的大小，比设置值小一圈。
+     *
+     * 设置里的数字是「直径」的语义，但圆形的视觉重量比同尺寸的方形大得多，
+     * 按原值画会显得笨重；这里统一收 0.86，设置项的含义不变。
+     */
+    private fun scaledSizeDp(): Int = (appliedSizeDp * 0.86f).toInt().coerceAtLeast(32)
+
     /** 录音时的呼吸动画 */
     private var pulse: android.animation.ObjectAnimator? = null
 
@@ -174,7 +182,7 @@ class FloatingBallService : Service() {
         appliedAlpha = (settings?.floatingBallAlpha ?: 0.9f).coerceIn(0.3f, 1f)
         val iconPath = settings?.floatingBallIconPath.orEmpty()
 
-        val sizePx = dp(appliedSizeDp)
+        val sizePx = dp(scaledSizeDp())
         val view = ImageView(this).apply {
             setBackgroundResource(R.drawable.bg_bubble)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
@@ -439,7 +447,7 @@ class FloatingBallService : Service() {
     private fun clampBall() {
         val current = ballParams ?: return
         val metrics = resources.displayMetrics
-        val size = ball?.width ?: dp(appliedSizeDp)
+        val size = ball?.width ?: dp(scaledSizeDp())
         current.x = current.x.coerceIn(0, (metrics.widthPixels - size).coerceAtLeast(0))
         current.y = current.y.coerceIn(0, (metrics.heightPixels - size).coerceAtLeast(0))
     }
@@ -449,7 +457,7 @@ class FloatingBallService : Service() {
         appliedSizeDp = sizeDp.coerceIn(40, 96)
         appliedAlpha = alpha.coerceIn(0.3f, 1f)
 
-        val sizePx = dp(appliedSizeDp)
+        val sizePx = dp(scaledSizeDp())
         ballParams?.let { lp ->
             if (lp.width != sizePx || lp.height != sizePx) {
                 lp.width = sizePx
