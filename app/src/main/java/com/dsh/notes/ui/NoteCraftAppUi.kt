@@ -219,14 +219,6 @@ fun NoteCraftApp(
             } else {
                 0f
             }
-            val barRefraction = rememberRefractionEffect(
-                offsetPx = Offset(barLeftPx, barTopPx),
-                sizePx = barSize,
-                cornerPx = with(density) { barCorner.toPx() },
-                bezelPx = with(density) { if (isLiquid) 18.dp.toPx() else 0f },
-                blurPx = with(density) { if (isLiquid) 2.dp.toPx() else 8.dp.toPx() }
-            )
-
             // 球要有「水珠」的手感：位置用弹簧追过去，出现/消失用缩放，
             // 直接硬切就是你说的「很僵硬」
             val animatedLensX by androidx.compose.animation.core.animateFloatAsState(
@@ -244,23 +236,6 @@ fun NoteCraftApp(
                     stiffness = 600f
                 ),
                 label = "lensScale"
-            )
-            // 球的采样点按 8dp 量化：每帧重建 RuntimeShader 太贵
-            val lensRefraction = rememberRefractionEffect(
-                offsetPx = Offset(
-                    with(density) {
-                        val s = 8.dp.toPx()
-                        kotlin.math.round((barLeftPx + animatedLensX - lensRadiusPx) / s) * s
-                    },
-                    with(density) {
-                        val s = 8.dp.toPx()
-                        kotlin.math.round((barTopPx + barSize.height / 2f - lensRadiusPx) / s) * s
-                    }
-                ),
-                sizePx = Size(lensRadiusPx * 2f, lensRadiusPx * 2f),
-                cornerPx = lensRadiusPx,
-                bezelPx = with(density) { 16.dp.toPx() },
-                blurPx = with(density) { 1.5.dp.toPx() }
             )
 
             /*
@@ -444,8 +419,8 @@ fun NoteCraftApp(
                                         edge = glassEdge,
                                         fallback = glassBottom,
                                         cornerPx = with(density) { barCorner.toPx() },
-                                        rimPx = with(density) { 18.dp.toPx() },
-                                        refractionEffect = barRefraction,
+                                        rimPx = 0f,
+                                        refractionEffect = null,
                                         showFringe = false
                                     )
                                 } else {
@@ -510,9 +485,9 @@ fun NoteCraftApp(
                                             edge = glassEdge,
                                             fallback = glassBottom,
                                             cornerPx = lensRadiusPx,
-                                            rimPx = with(density) { 16.dp.toPx() },
-                                            refractionEffect = lensRefraction,
-                                            showFringe = true
+                                            rimPx = 0f,
+                                            refractionEffect = null,
+                                            showFringe = false
                                         )
                                     } else {
                                         // 没开特殊效果也要看得见：一层很淡的对比色 + 细边。

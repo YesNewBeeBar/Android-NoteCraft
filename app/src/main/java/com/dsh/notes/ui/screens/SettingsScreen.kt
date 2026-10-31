@@ -741,24 +741,10 @@ fun SettingsScreen(
             ) {
                 SwitchRow(
                     title = "特殊效果",
-                    subtitle = "底栏换成玻璃质感，让下方内容透出来",
+                    subtitle = "底栏换成半透明质感，让下方内容透出来",
                     checked = settings.experimentalGlass,
                     onCheckedChange = viewModel::setExperimentalGlass
                 )
-                if (settings.experimentalGlass) {
-                    ChoiceRow(
-                        title = "毛玻璃",
-                        subtitle = "大范围模糊，只看得到背后的色块",
-                        selected = settings.glassStyle == GLASS_FROSTED,
-                        onClick = { viewModel.setGlassStyle(GLASS_FROSTED) }
-                    )
-                    ChoiceRow(
-                        title = "液态玻璃",
-                        subtitle = "边缘折射、色散和高光，能认出背后画面的形状",
-                        selected = settings.glassStyle == GLASS_LIQUID,
-                        onClick = { viewModel.setGlassStyle(GLASS_LIQUID) }
-                    )
-                }
                 SwitchRow(
                     title = "过渡动效",
                     subtitle = "页面切换加入淡入淡出",
