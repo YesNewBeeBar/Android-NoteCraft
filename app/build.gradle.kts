@@ -24,7 +24,7 @@ android {
         applicationId = "com.dsh.notes"
         minSdk = 26
         targetSdk = 35
-        versionCode = 47
+        versionCode = 48
         versionName = "1.5.0"
         vectorDrawables.useSupportLibrary = true
     }

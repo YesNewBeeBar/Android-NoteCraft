@@ -193,18 +193,7 @@ class UpdateManager(
             }
             val json = newest ?: return null
             val tag = json.optString("tag_name")
-
-            var apkUrl: String? = null
-            var apkSize = 0L
-            json.optJSONArray("assets")?.let { assets ->
-                for (i in 0 until assets.length()) {
-                    val asset = assets.optJSONObject(i) ?: continue
-                    if (!asset.optString("name").endsWith(".apk", ignoreCase = true)) continue
-                    apkUrl = asset.optString("browser_download_url").takeIf { it.isNotBlank() }
-                    apkSize = asset.optLong("size")
-                    break
-                }
-            }
+            val (apkUrl, apkSize) = pickApk(json.optJSONArray("assets"))
 
             return UpdateInfo(
                 versionName = tag.removePrefix("v").removePrefix("V").ifBlank { tag },
@@ -248,18 +237,7 @@ class UpdateManager(
 
     private fun parseRelease(json: JSONObject): UpdateInfo {
         val tag = json.optString("tag_name")
-
-        var apkUrl: String? = null
-        var apkSize = 0L
-        json.optJSONArray("assets")?.let { assets ->
-            for (i in 0 until assets.length()) {
-                val asset = assets.optJSONObject(i) ?: continue
-                if (!asset.optString("name").endsWith(".apk", ignoreCase = true)) continue
-                apkUrl = asset.optString("browser_download_url").takeIf { it.isNotBlank() }
-                apkSize = asset.optLong("size")
-                break
-            }
-        }
+        val (apkUrl, apkSize) = pickApk(json.optJSONArray("assets"))
 
         return UpdateInfo(
             versionName = tag.removePrefix("v").removePrefix("V").ifBlank { tag },
@@ -269,6 +247,41 @@ class UpdateManager(
             apkSizeBytes = apkSize,
             releaseUrl = json.optString("html_url").ifBlank { RELEASES_PAGE }
         )
+    }
+
+    /**
+     * 从附件里挑安装包。
+     *
+     * 同一个 release 里可能挂着不止一个 APK（历史遗留、手动补传），
+     * 文件名末尾带 versionCode（`NoteCraft-v1.5.0-47.apk`），取数字最大的那个；
+     * 都没编号才退回第一个 —— 不能盲取第一个，否则会下到旧包。
+     */
+    private fun pickApk(assets: JSONArray?): Pair<String?, Long> {
+        if (assets == null) return null to 0L
+        var firstUrl: String? = null
+        var firstSize = 0L
+        var bestUrl: String? = null
+        var bestSize = 0L
+        var bestCode = -1
+        val codeRegex = Regex("-(\\d+)\\.apk$", RegexOption.IGNORE_CASE)
+        for (i in 0 until assets.length()) {
+            val asset = assets.optJSONObject(i) ?: continue
+            val name = asset.optString("name")
+            if (!name.endsWith(".apk", ignoreCase = true)) continue
+            val url = asset.optString("browser_download_url").takeIf { it.isNotBlank() } ?: continue
+            val size = asset.optLong("size")
+            if (firstUrl == null) {
+                firstUrl = url
+                firstSize = size
+            }
+            val code = codeRegex.find(name)?.groupValues?.getOrNull(1)?.toIntOrNull() ?: -1
+            if (code > bestCode) {
+                bestCode = code
+                bestUrl = url
+                bestSize = size
+            }
+        }
+        return if (bestUrl != null) bestUrl to bestSize else firstUrl to firstSize
     }
 
     private suspend fun downloadApk(url: String, info: UpdateInfo): File =
