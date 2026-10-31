@@ -67,8 +67,11 @@ half4 main(float2 coord) {
              - sdRoundBox(p - float2(0.0, e), half1, uCorner);
     float2 nrm = normalize(float2(gx, gy) + float2(0.00001, 0.00001));
 
-    // 越靠外沿 x 越接近 1（表面最陡），位移最大；到棱镜内边界收敛为 0
-    float x = clamp(1.0 - dist / max(uBezel, 1.0), 0.0, 1.0);
+    // x 是「从外沿往内」的归一化距离：0 = 最外沿（表面最陡，位移最大），
+    // 1 = 棱镜带内边界（表面已经平的，位移收敛为 0）。
+    // 之前这里写成 1 - dist/bezel，把最陡的地方挪到了内边界，
+    // 边缘纹丝不动、内圈被撕开，所以看着像「完全没有畸变」。
+    float x = clamp(dist / max(uBezel, 1.0), 0.0, 1.0);
     float disp = displacement(x);
 
     // 沿法线方向取样：把边缘外的画面向内拉，形成「透过厚玻璃看」的弯折

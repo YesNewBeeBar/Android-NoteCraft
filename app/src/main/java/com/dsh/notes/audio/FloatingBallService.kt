@@ -377,6 +377,30 @@ class FloatingBallService : Service() {
         expanded = true
     }
 
+    /** 球被拖动时，把已经展开的条重新摆到球旁边（不重播动画） */
+    private fun repositionPanel() {
+        val panelView = panel ?: return
+        val bp = ballParams ?: return
+        val wm = windowManager ?: return
+        if (panelView.parent == null) return
+        val panelW = panelWidthPx()
+        val panelH = panelHeightPx()
+        val metrics = resources.displayMetrics
+        val ballW = ball?.width?.coerceAtLeast(dp(40)) ?: dp(40)
+        val ballH = ball?.height?.coerceAtLeast(dp(40)) ?: dp(40)
+        val roomRight = metrics.widthPixels - (bp.x + ballW)
+        val onRight = roomRight >= panelW + dp(6)
+        panelOnRight = onRight
+        val lp = (panelView.layoutParams as? WindowManager.LayoutParams
+            ?: return).apply {
+            x = (if (onRight) bp.x + ballW + dp(6) else bp.x - panelW - dp(6))
+                .coerceIn(0, (metrics.widthPixels - panelW).coerceAtLeast(0))
+            y = (bp.y + ballH / 2 - panelH / 2)
+                .coerceIn(0, (metrics.heightPixels - panelH).coerceAtLeast(0))
+        }
+        runCatching { wm.updateViewLayout(panelView, lp) }
+    }
+
     private fun collapse() {
         val panelView = panel ?: return
         if (panelView.parent != null) {
@@ -395,10 +419,21 @@ class FloatingBallService : Service() {
                         interpolator = android.view.animation.AccelerateInterpolator()
                         addListener(object : android.animation.AnimatorListenerAdapter() {
                             override fun onAnimationEnd(animation: android.animation.Animator) {
-                                if (!expanded) {
-                                    runCatching { windowManager?.removeView(panelView) }
-                                }
+                                /*
+                                 * 无条件移除。
+                                 *
+                                 * 之前这里写着 if (!expanded)，于是「收回途中又收到一次展开」
+                                 * 时视图会留在窗口里：circularReveal 的裁剪一旦被后续的
+                                 * 布局 / alpha 变更丢掉，完整面板就会闪一帧 ——
+                                 * 正是反馈里「收回时又冒出三个按钮」的那个瞬间。
+                                 */
+                                runCatching { windowManager?.removeView(panelView) }
                                 collapsing = false
+                                if (expanded) {
+                                    // 这 170ms 里确实又被要求展开：移除后重新播展开
+                                    expanded = false
+                                    expand()
+                                }
                             }
                         })
                     }
@@ -460,14 +495,17 @@ class FloatingBallService : Service() {
                     val dy = event.rawY - startRawY
                     if (!moved && (abs(dx) > slop || abs(dy) > slop)) {
                         moved = true
-                        // 一开始拖就收起操作条，避免一边拖一边挂着一个窗口
-                        if (expanded) collapse()
+                        // 注意：这里**不能**收起操作条。
+                        // 用户要的是「拖着球，伸出来的条跟着一起走」，
+                        // 收起会让整条闪一下消失，正是反馈里的那个坑。
                     }
                     if (moved) {
                         current.x = startX + dx.toInt()
                         current.y = startY + dy.toInt()
                         clampBall()
                         runCatching { ball?.let { windowManager?.updateViewLayout(it, current) } }
+                        // 条跟着球走：只重新摆位置，不重播展开动画
+                        if (expanded) repositionPanel()
                     }
                     true
                 }
