@@ -733,26 +733,40 @@ fun SettingsScreen(
                 }
             }
 
-            // ================= 实验性功能 =================
+            // ================= 视觉效果 =================
             SettingsSection(
                 icon = Icons.Default.Science,
-                title = "实验性功能",
-                subtitle = "可能影响稳定性，默认关闭"
+                title = "视觉效果",
+                subtitle = ""
             ) {
                 SwitchRow(
                     title = "特殊效果",
-                    subtitle = "底栏换成半透明质感，让下方内容透出来",
+                    subtitle = "",
                     checked = settings.experimentalGlass,
                     onCheckedChange = viewModel::setExperimentalGlass
                 )
+                if (settings.experimentalGlass) {
+                    ChoiceRow(
+                        title = "类型 1",
+                        subtitle = "",
+                        selected = settings.glassStyle == GLASS_FROSTED,
+                        onClick = { viewModel.setGlassStyle(GLASS_FROSTED) }
+                    )
+                    ChoiceRow(
+                        title = "类型 2",
+                        subtitle = "",
+                        selected = settings.glassStyle == GLASS_LIQUID,
+                        onClick = { viewModel.setGlassStyle(GLASS_LIQUID) }
+                    )
+                }
                 SwitchRow(
-                    title = "过渡动效",
+                    title = "过渡特效",
                     subtitle = "页面切换加入淡入淡出",
                     checked = settings.experimentalMotion,
                     onCheckedChange = viewModel::setExperimentalMotion
                 )
                 SwitchRow(
-                    title = "横滑切换",
+                    title = "横划切换",
                     subtitle = "在底部导航栏上左右滑动，切换录音 / 笔记 / 设置",
                     checked = settings.experimentalSwipeTabs,
                     onCheckedChange = viewModel::setExperimentalSwipeTabs
