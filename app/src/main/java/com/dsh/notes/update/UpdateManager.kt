@@ -165,6 +165,59 @@ class UpdateManager(
      * 自己挑第一个非草稿、非预发布的，这才是真正意义上的「最新」。
      */
     private suspend fun fetchNewestRelease(): UpdateInfo? = withContext(Dispatchers.IO) {
+        // 国内优先：Gitee 走国内线路，通常比 GitHub 快一个数量级。
+        // 任何失败（没网、仓库还没发版、接口异常）都静默回退到 GitHub，
+        // 这样即使哪天 Gitee 挂了，更新也不会断。
+        val gitee = runCatching { fetchGiteeNewest() }.getOrNull()
+        if (gitee != null) return@withContext gitee
+        fetchGithubNewest()
+    }
+
+    /** Gitee 侧：字段比 GitHub 少，没有 published_at，用 created_at 排 */
+    private fun fetchGiteeNewest(): UpdateInfo? {
+        val request = Request.Builder()
+            .url("https://gitee.com/api/v5/repos/$GITEE_REPO/releases?per_page=30")
+            .header("Accept", "application/json")
+            .header("User-Agent", "NoteCraft-Android")
+            .build()
+
+        client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) return null
+            val array = JSONArray(response.body?.string().orEmpty())
+            var newest: JSONObject? = null
+            for (i in 0 until array.length()) {
+                val item = array.optJSONObject(i) ?: continue
+                if (item.optBoolean("prerelease")) continue
+                val stamp = item.optString("created_at")
+                if (newest == null || stamp > newest!!.optString("created_at")) newest = item
+            }
+            val json = newest ?: return null
+            val tag = json.optString("tag_name")
+
+            var apkUrl: String? = null
+            var apkSize = 0L
+            json.optJSONArray("assets")?.let { assets ->
+                for (i in 0 until assets.length()) {
+                    val asset = assets.optJSONObject(i) ?: continue
+                    if (!asset.optString("name").endsWith(".apk", ignoreCase = true)) continue
+                    apkUrl = asset.optString("browser_download_url").takeIf { it.isNotBlank() }
+                    apkSize = asset.optLong("size")
+                    break
+                }
+            }
+
+            return UpdateInfo(
+                versionName = tag.removePrefix("v").removePrefix("V").ifBlank { tag },
+                tagName = tag,
+                notes = json.optString("body").trim(),
+                apkUrl = apkUrl,
+                apkSizeBytes = apkSize,
+                releaseUrl = if (tag.isNotBlank()) "$GITEE_PAGE/releases/tag/$tag" else GITEE_PAGE
+            )
+        }
+    }
+
+    private fun fetchGithubNewest(): UpdateInfo? {
         val request = Request.Builder()
             .url("https://api.github.com/repos/$REPO/releases?per_page=30")
             .header("Accept", "application/vnd.github+json")
@@ -173,7 +226,7 @@ class UpdateManager(
 
         client.newCall(request).execute().use { response ->
             when {
-                response.code == 404 -> null // 仓库还没发过 release，不是错误
+                response.code == 404 -> return null // 仓库还没发过 release，不是错误
                 !response.isSuccessful -> throw IOException("HTTP ${response.code}")
                 else -> {
                     val array = JSONArray(response.body?.string().orEmpty())
@@ -186,8 +239,8 @@ class UpdateManager(
                     }
                     // published_at 是 ISO8601（2026-10-18T23:00:00Z），字典序最大即最新
                     val newest = candidates.maxByOrNull { it.optString("published_at") }
-                        ?: return@withContext null
-                    parseRelease(newest)
+                        ?: return null
+                    return parseRelease(newest)
                 }
             }
         }
@@ -309,6 +362,10 @@ class UpdateManager(
         const val REPO = "YesNewBeeBar/Android-NoteCraft"
         const val RELEASES_PAGE =
             "https://github.com/YesNewBeeBar/Android-NoteCraft/releases"
+
+        /** 国内镜像仓库：更新优先走这里，失败再回退 GitHub */
+        const val GITEE_REPO = "YesNewBeeBar/android-note-craft"
+        const val GITEE_PAGE = "https://gitee.com/YesNewBeeBar/android-note-craft"
 
         /**
          * 自动检查的间隔。取 10 分钟：每次打开 App 都会真查一次，
