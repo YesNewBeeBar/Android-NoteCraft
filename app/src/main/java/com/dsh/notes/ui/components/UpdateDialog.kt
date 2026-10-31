@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -84,6 +85,15 @@ fun UpdateDialog(
                             .verticalScroll(rememberScrollState())
                     )
                 }
+
+                // 常驻的发布页入口：内嵌更新偶尔会因为网络或证书装不上，
+                // 留一个能自己去下载的口子，不用等它失败才出现
+                TextButton(
+                    onClick = { onOpenRelease(info.releaseUrl) },
+                    modifier = Modifier.padding(top = 4.dp)
+                ) {
+                    Text("打不开？去发布页", style = MaterialTheme.typography.labelMedium)
+                }
             }
         },
         confirmButton = {
@@ -103,8 +113,6 @@ fun UpdateDialog(
                     Spacer(Modifier.width(4.dp))
                     TextButton(onClick = onLater) { Text("暂不更新") }
                 }
-            } else {
-                TextButton(onClick = { onOpenRelease(info.releaseUrl) }) { Text("打不开？去发布页") }
             }
         }
     )
