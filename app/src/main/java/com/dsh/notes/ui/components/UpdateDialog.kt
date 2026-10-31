@@ -1,5 +1,6 @@
 package com.dsh.notes.ui.components
 
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -11,14 +12,23 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -85,24 +95,38 @@ fun UpdateDialog(
                             .verticalScroll(rememberScrollState())
                     )
                 }
-
-                // 常驻的发布页入口：内嵌更新偶尔会因为网络或证书装不上，
-                // 留一个能自己去下载的口子，不用等它失败才出现
-                TextButton(
-                    onClick = { onOpenRelease(info.releaseUrl) },
-                    modifier = Modifier.padding(top = 4.dp)
-                ) {
-                    Text("打不开？去发布页", style = MaterialTheme.typography.labelMedium)
-                }
             }
         },
         confirmButton = {
             if (downloading == null) {
                 val hasApk = info.apkUrl != null
-                TextButton(
-                    onClick = { if (hasApk) onInstall() else onOpenRelease(info.releaseUrl) }
-                ) {
-                    Text(if (hasApk) "立即更新" else "去发布页")
+                var menuOpen by remember { mutableStateOf(false) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // 主按钮回到「应用内下载安装」—— 这才是正常的更新路径
+                    TextButton(
+                        onClick = { if (hasApk) onInstall() else onOpenRelease(info.releaseUrl) },
+                        enabled = hasApk
+                    ) {
+                        Text(if (hasApk) "立即更新" else "暂无安装包")
+                    }
+                    // 次入口收进右侧的展开栏：装不上时还能自己去发布页
+                    Box {
+                        IconButton(onClick = { menuOpen = true }) {
+                            Icon(Icons.Default.MoreVert, contentDescription = "更多")
+                        }
+                        DropdownMenu(
+                            expanded = menuOpen,
+                            onDismissRequest = { menuOpen = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("打不开？去发布页") },
+                                onClick = {
+                                    menuOpen = false
+                                    onOpenRelease(info.releaseUrl)
+                                }
+                            )
+                        }
+                    }
                 }
             }
         },
