@@ -270,10 +270,9 @@ class UpdateManager(
             if (!name.endsWith(".apk", ignoreCase = true)) continue
             val url = asset.optString("browser_download_url").takeIf { it.isNotBlank() } ?: continue
             val size = asset.optLong("size")
-            if (firstUrl == null) {
-                firstUrl = url
-                firstSize = size
-            }
+            // 每次覆盖：循环结束时它指向列表里的最后一个（= 最近上传的）
+            firstUrl = url
+            firstSize = size
             val code = codeRegex.find(name)?.groupValues?.getOrNull(1)?.toIntOrNull() ?: -1
             if (code > bestCode) {
                 bestCode = code
@@ -281,8 +280,7 @@ class UpdateManager(
                 bestSize = size
             }
         }
-        return if (bestUrl != null) bestUrl to bestSize else firstUrl to firstSize
-    }
+        return if (bestUrl != null) bestUrl to bestSize else firstUrl to firstSize    }
 
     private suspend fun downloadApk(url: String, info: UpdateInfo): File =
         withContext(Dispatchers.IO) {
