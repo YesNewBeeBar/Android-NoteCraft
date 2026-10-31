@@ -2,15 +2,18 @@
 <!--
   展开后的操作条底板：胶囊形。
 
-  原来是 #E6（90% 不透明）的深色，在桌面这种彩色背景上就是一块黑板，
-  动画过程中尤其明显 —— 圆弧揭开时露出的每一块都是实心的。
-  现在降到 52%，背后能看见，边界靠描边维持。
+  半透明深色 + 斜向渐变（上亮下暗）+ 亮边。系统浮窗不能模糊背后，
+  所以「玻璃感」全靠这层渐变和描边撑起来，不能是一块纯色。
 -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
-    <solid android:color="#851B1F1E" />
-    <corners android:radius="28dp" />
+    <gradient
+        android:angle="270"
+        android:endColor="#7A14181A"
+        android:startColor="#A62A3033"
+        android:type="linear" />
+    <corners android:radius="30dp" />
     <stroke
         android:width="1dp"
-        android:color="#40FFFFFF" />
+        android:color="#4DFFFFFF" />
 </shape>

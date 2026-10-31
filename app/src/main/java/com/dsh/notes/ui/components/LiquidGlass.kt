@@ -27,6 +27,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.scale
@@ -393,17 +394,23 @@ fun Modifier.backdropGlass(
     edge: Color,
     fallback: Color,
     cornerPx: Float = 0f,
-    rimPx: Float = 0f
+    rimPx: Float = 0f,
+    refractionEffect: android.graphics.RenderEffect? = null,
+    showFringe: Boolean = false
 ): Modifier = drawBehind {
     val layer = state.layer
     var drawn = false
     if (layer.size.width > 0 && layer.size.height > 0) {
         drawn = runCatching {
-            layer.renderEffect = BlurEffect(
-                radiusX = blurPx,
-                radiusY = blurPx,
-                edgeTreatment = TileMode.Clamp
-            )
+            layer.renderEffect = if (refractionEffect != null) {
+                refractionEffect.asComposeRenderEffect()
+            } else {
+                BlurEffect(
+                    radiusX = blurPx,
+                    radiusY = blurPx,
+                    edgeTreatment = TileMode.Clamp
+                )
+            }
             translate(left = -originX, top = -originY) {
                 drawLayer(layer)
             }
@@ -416,7 +423,7 @@ fun Modifier.backdropGlass(
              * 遮罩成内侧的一圈环 —— 边缘看到的是「被放大的画面」，
              * 这正是玻璃边缘该有的光学错觉。中间那圈不画，否则整块都糊成大图。
              */
-            if (rimPx > 0f && size.width > rimPx * 2 && size.height > rimPx * 2) {
+            if (rimPx > 0f && refractionEffect == null && size.width > rimPx * 2 && size.height > rimPx * 2) {
                 /*
                  * 三层同心环，放大倍率由外向内递减（1.22 → 1.14 → 1.07）。
                  *
@@ -490,7 +497,7 @@ fun Modifier.backdropGlass(
      * 真实玻璃对不同波长折射率不同，所以亮边不是纯白，而是「红在一侧、青在另一侧」。
      * 这是玻璃最容易被眼睛认出来的细节之一，而且它不依赖背后有没有内容。
      */
-    if (cornerPx > 0f) {
+    if (showFringe && cornerPx > 0f) {
         val fringe = 1.6.dp.toPx()
         val strokeWidth = 1.6.dp.toPx()
         // 两道描边都必须画在视图范围内 —— 之前青色那道往外扩了 fringe，
@@ -524,6 +531,43 @@ fun Modifier.backdropGlass(
         end = Offset(size.width, size.height - stroke / 2f),
         strokeWidth = stroke
     )
+}
+
+@Composable
+fun rememberRefractionEffect(
+    offsetPx: Offset,
+    sizePx: Size,
+    cornerPx: Float,
+    bezelPx: Float,
+    blurPx: Float,
+    refractiveIndex: Float = 1.5f
+): android.graphics.RenderEffect? {
+    val context = LocalContext.current
+    return remember(offsetPx, sizePx, cornerPx, bezelPx, blurPx, refractiveIndex) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return@remember null
+        if (sizePx.width < 1f || sizePx.height < 1f || bezelPx < 1f) return@remember null
+        runCatching {
+            val source = context.resources.openRawResource(R.raw.liquid_bar)
+                .bufferedReader()
+                .use { it.readText() }
+            val shader = android.graphics.RuntimeShader(source)
+            shader.setFloatUniform("uOffset", offsetPx.x, offsetPx.y)
+            shader.setFloatUniform("uSize", sizePx.width, sizePx.height)
+            shader.setFloatUniform("uCorner", cornerPx)
+            shader.setFloatUniform("uBezel", bezelPx)
+            // 玻璃厚度：库里的默认是 150，对应 30 的棱镜宽 —— 这里按比例给
+            shader.setFloatUniform("uThickness", bezelPx * 5f)
+            shader.setFloatUniform("uRefractive", refractiveIndex)
+            val refract = android.graphics.RenderEffect.createRuntimeShaderEffect(shader, "uContent")
+            val blur = android.graphics.RenderEffect.createBlurEffect(
+                blurPx,
+                blurPx,
+                android.graphics.Shader.TileMode.CLAMP
+            )
+            // 先模糊、再折射：折射采样的就是已经被柔化的画面
+            android.graphics.RenderEffect.createChainEffect(refract, blur)
+        }.getOrNull()
+    }
 }
 
 fun Modifier.liquidGlassBackground(

@@ -1,9 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 悬浮球本体：圆形，主题墨绿，带一圈半透明白边，深色背景上也看得清 -->
+<!--
+  悬浮球本体。
+
+  纯色圆在任何背景上都像一枚贴纸，所以这里加了一层斜向渐变：
+  左上偏亮、右下偏深，再加一圈亮边 —— 这是「有体积的玻璃球」在
+  2D 里最省的画法（系统浮窗拿不到背后画面，真实折射做不到）。
+-->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="oval">
-    <solid android:color="#1E6E5C" />
+    <gradient
+        android:angle="315"
+        android:endColor="#E61B5A4A"
+        android:startColor="#F23C8C74"
+        android:type="linear" />
     <stroke
-        android:width="2dp"
-        android:color="#66FFFFFF" />
+        android:width="1.5dp"
+        android:color="#7AFFFFFF" />
 </shape>

@@ -1,0 +1,77 @@
+// 液态玻璃的折射（AGSL，Android 13+）
+//
+// 移植自 liquid-glass 库的 displacementMap.ts：
+//   1. 表面方程（convex squircle）：y = (1-(1-x)^4)^(1/4)
+//   2. 对表面求导得到法线，代入 Snell 定律算出折射光向量
+//   3. 折射光穿过「玻璃厚度」后的水平偏移就是该点的位移量
+//   4. 沿圆角矩形的距离场把这个位移量铺到二维，采样点偏移 → 边缘的画面被弯折
+//
+// 与之前「整体放大」的区别：放大是均匀伸缩，Snell 位移在棱镜带内
+// 从外到内连续变化，边缘最狠、到内边界收敛为 0 —— 这才是凸面玻璃的样子。
+
+uniform shader uContent;
+
+uniform float2 uOffset;      // 玻璃左上角（图层坐标 px）
+uniform float2 uSize;        // 玻璃尺寸
+uniform float uCorner;       // 圆角
+uniform float uBezel;        // 棱镜带宽 px
+uniform float uThickness;    // 玻璃厚度（越大折射越强）
+uniform float uRefractive;   // 折射率
+
+float sdRoundBox(float2 p, float2 half1, float r) {
+    float2 q = abs(p) - half1 + r;
+    return length(max(q, float2(0.0))) + min(max(q.x, q.y), 0.0) - r;
+}
+
+// convex squircle：x∈[0,1] 从边缘到内边界，返回表面高度
+float surface(float x) {
+    float t = 1.0 - x;
+    return pow(max(1.0 - t * t * t * t, 0.0), 0.25);
+}
+
+// 一维折射位移：x∈[0,1]，返回水平位移像素
+float displacement(float x) {
+    float y = surface(x);
+    float dx = 0.0001;
+    float d = (surface(min(1.0, x + dx)) - y) / dx;
+    float m = sqrt(d * d + 1.0);
+    float2 n = float2(-d / m, -1.0 / m);   // 表面法线
+    float e = 1.0 / max(uRefractive, 1.0001);
+    float eye = e * n.y;
+    float k = 1.0 - e * e * (1.0 - n.y * n.y);
+    if (k < 0.0) {
+        return 0.0;                        // 全反射，不透过
+    }
+    float2 rf = float2(-(eye + sqrt(k)) * n.x, e - (eye + sqrt(k)) * n.y);
+    float depth = y * uBezel + uThickness;
+    return rf.x * (depth / max(rf.y, 0.0001));
+}
+
+half4 main(float2 coord) {
+    float2 local = coord - uOffset;
+    float2 half1 = uSize * 0.5;
+    float2 p = local - half1;
+    float sd = sdRoundBox(p, half1, uCorner);   // <0 在内部
+    float dist = -sd;                           // 到边界的距离，内部为正
+
+    if (dist < 0.0 || dist >= uBezel) {
+        // 玻璃外面原样返回；棱镜带以内才折射
+        return uContent.eval(coord);
+    }
+
+    // 圆角矩形距离场的梯度 = 外法线
+    float e = 1.0;
+    float gx = sdRoundBox(p + float2(e, 0.0), half1, uCorner)
+             - sdRoundBox(p - float2(e, 0.0), half1, uCorner);
+    float gy = sdRoundBox(p + float2(0.0, e), half1, uCorner)
+             - sdRoundBox(p - float2(0.0, e), half1, uCorner);
+    float2 nrm = normalize(float2(gx, gy) + float2(0.00001, 0.00001));
+
+    // 越靠外沿 x 越接近 1（表面最陡），位移最大；到棱镜内边界收敛为 0
+    float x = clamp(1.0 - dist / max(uBezel, 1.0), 0.0, 1.0);
+    float disp = displacement(x);
+
+    // 沿法线方向取样：把边缘外的画面向内拉，形成「透过厚玻璃看」的弯折
+    float2 samplePos = clamp(coord + nrm * disp, float2(0.0), uOffset + uSize);
+    return uContent.eval(samplePos);
+}
