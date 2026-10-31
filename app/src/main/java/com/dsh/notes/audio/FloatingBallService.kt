@@ -73,6 +73,9 @@ class FloatingBallService : Service() {
      */
     private var collapsing = false
 
+    /** 面板这次展开在哪一侧：收起的圆弧要从同一侧收回去 */
+    private var panelOnRight = true
+
     /** 当前已经应用到视图上的值，预览时以它为基准，避免每次去磁盘读设置 */
     private var appliedSizeDp = 56
     private var appliedAlpha = 0.9f
@@ -297,6 +300,7 @@ class FloatingBallService : Service() {
         // 右边放得下就放右边，否则放左边 —— 无论哪种，球本身都不动
         val roomRight = metrics.widthPixels - (bp.x + ballW)
         val onRight = roomRight >= panelW + dp(6)
+        panelOnRight = onRight
 
         val x = if (onRight) {
             bp.x + ballW + dp(6)
@@ -317,7 +321,7 @@ class FloatingBallService : Service() {
          * 中间那一帧面板是以完整尺寸、完整不透明度画出来的，
          * 就是你看到的「闪一下变成展开的样子」。
          */
-        panelView.scaleX = 0.12f
+        panelView.scaleX = 1f
         panelView.alpha = 0f
         val lp = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
@@ -343,17 +347,32 @@ class FloatingBallService : Service() {
          * 「伸出来」：从球贴着的那条边往外长，不是原地淡入。
          * 贴右边就从左端长出去，贴左边就从右端长出去 —— 和球的方向一致。
          */
+        /*
+         * 「伸出来」：圆形揭开。
+         *
+         * 圆点放在球贴着的那条边（贴右 → 左端，贴左 → 右端），半径 0 长到盖住整条，
+         * 于是推进的边界天然是**一段圆弧**，视觉上就是从球里往右（或往左）擦出来。
+         * 半径从 0 开始，意味着加进窗口的第一帧就是「什么都没有」——不会再闪。
+         */
         panelView.post {
-            panelView.pivotX = if (onRight) 0f else panelView.width.toFloat()
-            panelView.pivotY = panelView.height / 2f
-            panelView.scaleX = 0.12f
-            panelView.alpha = 0f
-            panelView.animate()
-                .scaleX(1f)
-                .alpha(appliedAlpha)
-                .setDuration(220)
-                .setInterpolator(android.view.animation.DecelerateInterpolator())
-                .start()
+            val w = panelView.width.takeIf { it > 0 } ?: panelW
+            val h = panelView.height.takeIf { it > 0 } ?: panelH
+            val cx = if (onRight) 0 else w
+            val cy = h / 2
+            val maxRadius = kotlin.math.hypot(w.toDouble(), h.toDouble()).toFloat()
+            runCatching {
+                panelView.alpha = appliedAlpha
+                android.view.ViewAnimationUtils
+                    .createCircularReveal(panelView, cx, cy, 0f, maxRadius)
+                    .apply {
+                        duration = 200
+                        interpolator = android.view.animation.DecelerateInterpolator()
+                    }
+                    .start()
+            }.onFailure {
+                // 极少数机型不支持，退回淡入，至少不会完全不显示
+                panelView.alpha = appliedAlpha
+            }
         }
         expanded = true
     }
@@ -362,23 +381,33 @@ class FloatingBallService : Service() {
         val panelView = panel ?: return
         if (panelView.parent != null) {
             collapsing = true
-            // 先掐掉正在跑的展开动画，否则两边抢同一组属性
             panelView.animate().cancel()
-            // 收回去：往球的方向缩，缩完再真正移除
-            panelView.animate()
-                .scaleX(0.12f)
-                .alpha(0f)
-                .setDuration(160)
-                .setInterpolator(android.view.animation.AccelerateInterpolator())
-                .withEndAction {
-                    // 这 160ms 里如果状态又变成「展开」，说明它又被打开了，
-                    // 此时代码已经把视图恢复成展开态 —— 再删就会「闪一下伸出后的样子」。
-                    if (!expanded) {
-                        runCatching { windowManager?.removeView(panelView) }
+            val w = panelView.width
+            val h = panelView.height
+            val cx = if (panelOnRight) 0 else w
+            val maxRadius = kotlin.math.hypot(w.toDouble(), h.toDouble()).toFloat()
+            // 收回：圆形揭开倒放 —— 圆弧边界从右往左（或反方向）擦回去
+            val started = runCatching {
+                android.view.ViewAnimationUtils
+                    .createCircularReveal(panelView, cx, h / 2, maxRadius, 0f)
+                    .apply {
+                        duration = 170
+                        interpolator = android.view.animation.AccelerateInterpolator()
+                        addListener(object : android.animation.AnimatorListenerAdapter() {
+                            override fun onAnimationEnd(animation: android.animation.Animator) {
+                                if (!expanded) {
+                                    runCatching { windowManager?.removeView(panelView) }
+                                }
+                                collapsing = false
+                            }
+                        })
                     }
-                    collapsing = false
-                }
-                .start()
+                    .start()
+            }.isSuccess
+            if (!started) {
+                runCatching { windowManager?.removeView(panelView) }
+                collapsing = false
+            }
         }
         expanded = false
     }

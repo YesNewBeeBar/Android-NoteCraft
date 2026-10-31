@@ -484,6 +484,30 @@ fun Modifier.backdropGlass(
             end = Offset(size.width, size.height)
         )
     )
+    /*
+     * 色散：沿边缘错开画一道红、一道青。
+     *
+     * 真实玻璃对不同波长折射率不同，所以亮边不是纯白，而是「红在一侧、青在另一侧」。
+     * 这是玻璃最容易被眼睛认出来的细节之一，而且它不依赖背后有没有内容。
+     */
+    if (cornerPx > 0f) {
+        val fringe = 1.2.dp.toPx()
+        val strokeWidth = 1.6.dp.toPx()
+        drawRoundRect(
+            color = Color(0x45FF5A5A),
+            topLeft = Offset(fringe, fringe),
+            size = Size(size.width - fringe * 2, size.height - fringe * 2),
+            cornerRadius = CornerRadius((cornerPx - fringe).coerceAtLeast(0f)),
+            style = androidx.compose.ui.graphics.drawscope.Stroke(width = strokeWidth)
+        )
+        drawRoundRect(
+            color = Color(0x4500E0FF),
+            topLeft = Offset(-fringe, -fringe),
+            size = Size(size.width + fringe * 2, size.height + fringe * 2),
+            cornerRadius = CornerRadius(cornerPx + fringe),
+            style = androidx.compose.ui.graphics.drawscope.Stroke(width = strokeWidth)
+        )
+    }
     // 玻璃的「厚度」：一道很细的亮边
     val stroke = 1.5.dp.toPx()
     drawLine(
