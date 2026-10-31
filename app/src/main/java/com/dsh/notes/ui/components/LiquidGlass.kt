@@ -424,7 +424,7 @@ fun Modifier.backdropGlass(
                  * 分三层就有了连续变化的斜率 —— 越靠边压得越狠，
                  * 这正是凸透镜在边缘把画面弯折的样子。
                  */
-                val scales = floatArrayOf(1.32f, 1.20f, 1.09f)
+                val scales = floatArrayOf(1.48f, 1.30f, 1.13f)
                 scales.forEachIndexed { index, factor ->
                     val outer = rimPx * index / scales.size
                     val inner = rimPx * (index + 1) / scales.size
@@ -491,20 +491,22 @@ fun Modifier.backdropGlass(
      * 这是玻璃最容易被眼睛认出来的细节之一，而且它不依赖背后有没有内容。
      */
     if (cornerPx > 0f) {
-        val fringe = 1.2.dp.toPx()
+        val fringe = 1.6.dp.toPx()
         val strokeWidth = 1.6.dp.toPx()
+        // 两道描边都必须画在视图范围内 —— 之前青色那道往外扩了 fringe，
+        // 被 View 的边界整条裁掉，所以只剩红色
         drawRoundRect(
-            color = Color(0x45FF5A5A),
+            color = Color(0x4DFF5A5A),
             topLeft = Offset(fringe, fringe),
             size = Size(size.width - fringe * 2, size.height - fringe * 2),
             cornerRadius = CornerRadius((cornerPx - fringe).coerceAtLeast(0f)),
             style = androidx.compose.ui.graphics.drawscope.Stroke(width = strokeWidth)
         )
         drawRoundRect(
-            color = Color(0x4500E0FF),
-            topLeft = Offset(-fringe, -fringe),
-            size = Size(size.width + fringe * 2, size.height + fringe * 2),
-            cornerRadius = CornerRadius(cornerPx + fringe),
+            color = Color(0x4D36D8FF),
+            topLeft = Offset(fringe / 3f, fringe / 3f),
+            size = Size(size.width - fringe * 2f / 3f, size.height - fringe * 2f / 3f),
+            cornerRadius = CornerRadius((cornerPx - fringe / 3f).coerceAtLeast(0f)),
             style = androidx.compose.ui.graphics.drawscope.Stroke(width = strokeWidth)
         )
     }
