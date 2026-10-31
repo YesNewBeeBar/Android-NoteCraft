@@ -741,7 +741,7 @@ fun SettingsScreen(
             ) {
                 SwitchRow(
                     title = "特殊效果",
-                    subtitle = "底栏换成玻璃质感，让下方内容透出来（Android 13 以上才有真玻璃）",
+                    subtitle = "底栏换成玻璃质感，让下方内容透出来",
                     checked = settings.experimentalGlass,
                     onCheckedChange = viewModel::setExperimentalGlass
                 )

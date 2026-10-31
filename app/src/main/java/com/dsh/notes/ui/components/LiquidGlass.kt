@@ -402,14 +402,31 @@ fun Modifier.backdropGlass(
     var drawn = false
     if (layer.size.width > 0 && layer.size.height > 0) {
         drawn = runCatching {
-            layer.renderEffect = if (refractionEffect != null) {
-                refractionEffect.asComposeRenderEffect()
-            } else {
-                BlurEffect(
-                    radiusX = blurPx,
-                    radiusY = blurPx,
-                    edgeTreatment = TileMode.Clamp
-                )
+            /*
+             * 关键：着色器的挂载必须**单独兜底**。
+             *
+             * 之前 `layer.renderEffect = 自定义着色器` 一旦抛异常（Compose 这个版本
+             * 对非内置 RenderEffect 可能拒绝），会连带把后面的「画图层 + 三层折射环」
+             * 全部跳过 —— 结果就是只剩一层淡淡的染色，画面完全平整。
+             */
+            val shaderApplied = refractionEffect?.let { effect ->
+                runCatching {
+                    layer.renderEffect = effect.asComposeRenderEffect()
+                    true
+                }.getOrDefault(false)
+            } ?: false
+            if (!shaderApplied) {
+                runCatching {
+                    layer.renderEffect = BlurEffect(
+                        radiusX = blurPx,
+                        radiusY = blurPx,
+                        edgeTreatment = TileMode.Clamp
+                    )
+                    true
+                }
+            }
+            translate(left = -originX, top = -originY) {
+                drawLayer(layer)
             }
             translate(left = -originX, top = -originY) {
                 drawLayer(layer)
@@ -423,7 +440,7 @@ fun Modifier.backdropGlass(
              * 遮罩成内侧的一圈环 —— 边缘看到的是「被放大的画面」，
              * 这正是玻璃边缘该有的光学错觉。中间那圈不画，否则整块都糊成大图。
              */
-            if (rimPx > 0f && refractionEffect == null && size.width > rimPx * 2 && size.height > rimPx * 2) {
+            if (rimPx > 0f && size.width > rimPx * 2 && size.height > rimPx * 2) {
                 /*
                  * 三层同心环，放大倍率由外向内递减（1.22 → 1.14 → 1.07）。
                  *
