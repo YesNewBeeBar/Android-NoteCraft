@@ -5,6 +5,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.WindowInsets
@@ -524,10 +525,14 @@ fun NoteCraftApp(
                                             rimPx = with(density) { 12.dp.toPx() }
                                         )
                                     } else {
-                                        Modifier.background(
-                                            MaterialTheme.colorScheme.primaryContainer
-                                                .copy(alpha = 0.94f)
-                                        )
+                                        // 没开特殊效果也要看得见：一层很淡的对比色 + 细边。
+                                        // 不是实心块，但也绝不是看不见
+                                        Modifier
+                                            .background(
+                                                MaterialTheme.colorScheme.onSurface
+                                                    .copy(alpha = 0.13f)
+                                            )
+                                            .border(1.5.dp, glassEdge, CircleShape)
                                     }
                                 )
                         )

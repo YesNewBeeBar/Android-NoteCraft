@@ -65,6 +65,14 @@ class FloatingBallService : Service() {
 
     private var expanded = false
 
+    /**
+     * 正在播「收回去」的动画。
+     *
+     * 这 160ms 里任何把 alpha/scale 恢复成展开态的刷新都要跳过，
+     * 否则最后一帧会闪一下完整的面板 —— 看起来像收起来又蹦出来。
+     */
+    private var collapsing = false
+
     /** 当前已经应用到视图上的值，预览时以它为基准，避免每次去磁盘读设置 */
     private var appliedSizeDp = 56
     private var appliedAlpha = 0.9f
@@ -288,6 +296,9 @@ class FloatingBallService : Service() {
         val y = (bp.y + ballH / 2 - panelH / 2)
             .coerceIn(0, (metrics.heightPixels - panelH).coerceAtLeast(0))
 
+        // 又被打开了：取消「正在收起」状态，否则动画回调会把面板删掉
+        collapsing = false
+        panelView.animate().cancel()
         panelView.alpha = appliedAlpha
         val lp = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
@@ -331,6 +342,7 @@ class FloatingBallService : Service() {
     private fun collapse() {
         val panelView = panel ?: return
         if (panelView.parent != null) {
+            collapsing = true
             // 先掐掉正在跑的展开动画，否则两边抢同一组属性
             panelView.animate().cancel()
             // 收回去：往球的方向缩，缩完再真正移除
@@ -345,6 +357,7 @@ class FloatingBallService : Service() {
                     if (!expanded) {
                         runCatching { windowManager?.removeView(panelView) }
                     }
+                    collapsing = false
                 }
                 .start()
         }
@@ -445,7 +458,8 @@ class FloatingBallService : Service() {
             }
         }
         ballView.alpha = appliedAlpha
-        panel?.alpha = appliedAlpha
+        // 正在收起时别把面板的 alpha 顶回去，否则最后一帧会闪出完整面板
+        if (!collapsing) panel?.alpha = appliedAlpha
     }
 
     private fun observeState() {

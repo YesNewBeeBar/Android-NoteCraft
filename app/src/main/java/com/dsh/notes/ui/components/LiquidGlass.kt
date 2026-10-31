@@ -417,30 +417,41 @@ fun Modifier.backdropGlass(
              * 这正是玻璃边缘该有的光学错觉。中间那圈不画，否则整块都糊成大图。
              */
             if (rimPx > 0f && size.width > rimPx * 2 && size.height > rimPx * 2) {
-                val ring = Path().apply {
-                    fillType = PathFillType.EvenOdd
-                    addRoundRect(
-                        RoundRect(
-                            0f, 0f, size.width, size.height,
-                            CornerRadius(cornerPx)
+                /*
+                 * 三层同心环，放大倍率由外向内递减（1.22 → 1.14 → 1.07）。
+                 *
+                 * 只画一层的话边缘是一道「台阶」，看着像贴纸；
+                 * 分三层就有了连续变化的斜率 —— 越靠边压得越狠，
+                 * 这正是凸透镜在边缘把画面弯折的样子。
+                 */
+                val scales = floatArrayOf(1.22f, 1.14f, 1.07f)
+                scales.forEachIndexed { index, factor ->
+                    val outer = rimPx * index / scales.size
+                    val inner = rimPx * (index + 1) / scales.size
+                    val ring = Path().apply {
+                        fillType = PathFillType.EvenOdd
+                        addRoundRect(
+                            RoundRect(
+                                outer, outer, size.width - outer, size.height - outer,
+                                CornerRadius((cornerPx - outer).coerceAtLeast(0f))
+                            )
                         )
-                    )
-                    val i = rimPx
-                    addRoundRect(
-                        RoundRect(
-                            i, i, size.width - i, size.height - i,
-                            CornerRadius((cornerPx - i).coerceAtLeast(0f))
+                        addRoundRect(
+                            RoundRect(
+                                inner, inner, size.width - inner, size.height - inner,
+                                CornerRadius((cornerPx - inner).coerceAtLeast(0f))
+                            )
                         )
-                    )
-                }
-                clipPath(ring) {
-                    scale(
-                        scaleX = 1.10f,
-                        scaleY = 1.10f,
-                        pivot = center
-                    ) {
-                        translate(left = -originX, top = -originY) {
-                            drawLayer(layer)
+                    }
+                    clipPath(ring) {
+                        scale(
+                            scaleX = factor,
+                            scaleY = factor,
+                            pivot = center
+                        ) {
+                            translate(left = -originX, top = -originY) {
+                                drawLayer(layer)
+                            }
                         }
                     }
                 }
