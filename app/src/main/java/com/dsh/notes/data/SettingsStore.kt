@@ -95,9 +95,17 @@ enum class AsrEngine {
         }
 }
 
+/** 朗读引擎 */
+const val TTS_SYSTEM = "system"
+const val TTS_CLOUD = "cloud"
+const val TTS_LOCAL = "local"
+
+const val DEFAULT_TTS_MODEL = "tts-1"
+const val DEFAULT_TTS_VOICE = "alloy"
+const val DEFAULT_TTS_BASE_URL = "https://api.openai.com/v1"
+
 /** 玻璃风格：毛玻璃（大模糊、无折射） */
 const val GLASS_FROSTED = "frosted"
-
 /** 玻璃风格：液态玻璃（折射 + 色散 + 高光） */
 const val GLASS_LIQUID = "liquid"
 
@@ -181,6 +189,16 @@ data class AppSettings(
 
     /** 玻璃风格：frosted = 毛玻璃，liquid = 液态玻璃 */
     val glassStyle: String = GLASS_LIQUID,
+
+    // ---------- 朗读（TTS）----------
+    /** 用哪个引擎念：system / cloud / local */
+    val ttsEngine: String = TTS_SYSTEM,
+    val ttsBaseUrl: String = "",
+    val ttsApiKey: String = "",
+    val ttsModel: String = DEFAULT_TTS_MODEL,
+    val ttsVoice: String = DEFAULT_TTS_VOICE,
+    /** 已下载的本地模型目录名；空表示没下 */
+    val ttsLocalModel: String = "",
 
     // ---------- 大肥鱼（AI 问答）----------
     /** 助手名字，默认「大肥鱼」 */
@@ -272,6 +290,12 @@ class SettingsStore(private val context: Context) {
         val experimentalMotion = booleanPreferencesKey("experimental_motion")
         val experimentalSwipeTabs = booleanPreferencesKey("experimental_swipe_tabs")
         val glassStyle = stringPreferencesKey("glass_style")
+        val ttsEngine = stringPreferencesKey("tts_engine")
+        val ttsBaseUrl = stringPreferencesKey("tts_base_url")
+        val ttsApiKey = stringPreferencesKey("tts_api_key")
+        val ttsModel = stringPreferencesKey("tts_model")
+        val ttsVoice = stringPreferencesKey("tts_voice")
+        val ttsLocalModel = stringPreferencesKey("tts_local_model")
         val fishName = stringPreferencesKey("fish_name")
         val fishBaseUrl = stringPreferencesKey("fish_base_url")
         val fishApiKey = stringPreferencesKey("fish_api_key_enc")
@@ -324,6 +348,12 @@ class SettingsStore(private val context: Context) {
             experimentalMotion = prefs[Keys.experimentalMotion] ?: true,
             experimentalSwipeTabs = prefs[Keys.experimentalSwipeTabs] ?: true,
             glassStyle = prefs[Keys.glassStyle] ?: GLASS_LIQUID,
+            ttsEngine = prefs[Keys.ttsEngine] ?: TTS_SYSTEM,
+            ttsBaseUrl = prefs[Keys.ttsBaseUrl] ?: "",
+            ttsApiKey = CryptoUtils.decrypt(prefs[Keys.ttsApiKey] ?: ""),
+            ttsModel = prefs[Keys.ttsModel] ?: DEFAULT_TTS_MODEL,
+            ttsVoice = prefs[Keys.ttsVoice] ?: DEFAULT_TTS_VOICE,
+            ttsLocalModel = prefs[Keys.ttsLocalModel] ?: "",
             fishName = prefs[Keys.fishName]?.takeIf { it.isNotBlank() } ?: "大肥鱼",
             fishBaseUrl = prefs[Keys.fishBaseUrl] ?: "",
             fishApiKey = CryptoUtils.decrypt(prefs[Keys.fishApiKey] ?: ""),
@@ -401,6 +431,15 @@ class SettingsStore(private val context: Context) {
     suspend fun setExperimentalSwipeTabs(value: Boolean) = put(Keys.experimentalSwipeTabs, value)
 
     suspend fun setGlassStyle(value: String) = put(Keys.glassStyle, value)
+
+    // ---------------------------------------------------------------- 朗读
+
+    suspend fun setTtsEngine(value: String) = put(Keys.ttsEngine, value)
+    suspend fun setTtsBaseUrl(value: String) = put(Keys.ttsBaseUrl, value.trim())
+    suspend fun setTtsApiKey(value: String) = put(Keys.ttsApiKey, CryptoUtils.encrypt(value.trim()))
+    suspend fun setTtsModel(value: String) = put(Keys.ttsModel, value.trim())
+    suspend fun setTtsVoice(value: String) = put(Keys.ttsVoice, value.trim())
+    suspend fun setTtsLocalModel(value: String) = put(Keys.ttsLocalModel, value)
 
     suspend fun setFishName(value: String) = put(Keys.fishName, value.trim().ifBlank { "大肥鱼" })
 

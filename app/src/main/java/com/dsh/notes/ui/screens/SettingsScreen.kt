@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.RadioButtonChecked
 import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Translate
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Info
@@ -81,6 +82,12 @@ import com.dsh.notes.audio.FloatingBallService
 import com.dsh.notes.data.AppSettings
 import com.dsh.notes.data.AsrEngine
 import com.dsh.notes.data.ConfigArea
+import com.dsh.notes.data.DEFAULT_TTS_BASE_URL
+import com.dsh.notes.data.DEFAULT_TTS_MODEL
+import com.dsh.notes.data.DEFAULT_TTS_VOICE
+import com.dsh.notes.data.TTS_CLOUD
+import com.dsh.notes.data.TTS_LOCAL
+import com.dsh.notes.data.TTS_SYSTEM
 import com.dsh.notes.data.ConfigField
 import com.dsh.notes.data.ConfigValidator
 import com.dsh.notes.data.GLASS_FROSTED
@@ -122,6 +129,7 @@ fun SettingsScreen(
     var showClearCacheDialog by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
+    val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
 
     // ---- 悬浮球 ----
     // 权限在系统设置里授予，用户回来时必须重新读一次，所以挂在 resume 上
@@ -729,6 +737,90 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
+            }
+
+            // ================= 语音朗读 =================
+            SettingsSection(
+                icon = Icons.Default.VolumeUp,
+                title = "语音朗读",
+                subtitle = "把笔记念出来时用哪个引擎"
+            ) {
+                listOf(
+                    Triple(TTS_SYSTEM, "系统语音", "手机自带引擎，不占空间，音色取决于机型"),
+                    Triple(TTS_CLOUD, "云端语音", "需要 API Key，音色自然，按字数计费"),
+                    Triple(TTS_LOCAL, "本地模型", "sherpa-onnx，完全离线，需要先下载模型")
+                ).forEach { (value, label, desc) ->
+                    ChoiceRow(
+                        title = label,
+                        subtitle = desc,
+                        selected = settings.ttsEngine == value,
+                        onClick = { viewModel.setTtsEngine(value) }
+                    )
+                }
+
+                if (settings.ttsEngine == TTS_CLOUD) {
+                    Spacer(Modifier.height(8.dp))
+                    CommittedTextField(
+                        label = "TTS BaseURL",
+                        initial = settings.ttsBaseUrl.ifBlank { DEFAULT_TTS_BASE_URL },
+                        placeholder = DEFAULT_TTS_BASE_URL,
+                        supporting = "OpenAI 兼容接口，路径会自动补 /audio/speech",
+                        onCommit = viewModel::setTtsBaseUrl
+                    )
+                    CommittedTextField(
+                        label = "TTS API Key",
+                        initial = settings.ttsApiKey,
+                        placeholder = "sk-...",
+                        supporting = "只存在本机，用 Android Keystore 加密",
+                        onCommit = viewModel::setTtsApiKey
+                    )
+                    OutlinedButton(
+                        onClick = { uriHandler.openUri("https://platform.openai.com/api-keys") },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.OpenInNew,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(Modifier.size(6.dp))
+                        Text("去申请 TTS API Key")
+                    }
+                    CommittedTextField(
+                        label = "模型",
+                        initial = settings.ttsModel,
+                        placeholder = DEFAULT_TTS_MODEL,
+                        supporting = "如 tts-1 / gpt-4o-mini-tts，或中转站的同名模型",
+                        onCommit = viewModel::setTtsModel
+                    )
+                    CommittedTextField(
+                        label = "音色",
+                        initial = settings.ttsVoice,
+                        placeholder = DEFAULT_TTS_VOICE,
+                        supporting = "如 alloy / nova / shimmer",
+                        onCommit = viewModel::setTtsVoice
+                    )
+                }
+
+                if (settings.ttsEngine == TTS_LOCAL) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = if (settings.ttsLocalModel.isBlank()) {
+                            "还没有下载本地模型。"
+                        } else {
+                            "已安装模型：${settings.ttsLocalModel}"
+                        },
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        text = "本地模型需要 sherpa-onnx 运行时和模型包，当前版本还没有" +
+                            "提供下载源；选它会自动退回系统语音。",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }

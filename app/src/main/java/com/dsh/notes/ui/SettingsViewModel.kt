@@ -61,6 +61,26 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
     fun setGlassStyle(value: String) =
         viewModelScope.launch { container.settings.setGlassStyle(value) }
 
+    // ---------------------------------------------------------------- 朗读
+
+    fun setTtsEngine(value: String) =
+        viewModelScope.launch { container.settings.setTtsEngine(value) }
+
+    fun setTtsBaseUrl(value: String) =
+        viewModelScope.launch { container.settings.setTtsBaseUrl(value) }
+
+    fun setTtsApiKey(value: String) =
+        viewModelScope.launch { container.settings.setTtsApiKey(value) }
+
+    fun setTtsModel(value: String) =
+        viewModelScope.launch { container.settings.setTtsModel(value) }
+
+    fun setTtsVoice(value: String) =
+        viewModelScope.launch { container.settings.setTtsVoice(value) }
+
+    fun setTtsLocalModel(value: String) =
+        viewModelScope.launch { container.settings.setTtsLocalModel(value) }
+
     // ---------------------------------------------------------------- 大肥鱼
 
     fun setFishName(value: String) = viewModelScope.launch { container.settings.setFishName(value) }

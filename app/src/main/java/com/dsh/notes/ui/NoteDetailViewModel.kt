@@ -9,6 +9,8 @@ import com.dsh.notes.audio.Waveform
 import com.dsh.notes.data.Note
 import com.dsh.notes.data.ConfigValidator
 import com.dsh.notes.audio.SpeechReader
+import com.dsh.notes.data.DEFAULT_TTS_BASE_URL
+import com.dsh.notes.data.TTS_CLOUD
 import com.dsh.notes.pipeline.AudioFileState
 import com.dsh.notes.pipeline.PipelineProgress
 import com.dsh.notes.pipeline.PipelineStage
@@ -75,13 +77,38 @@ class NoteDetailViewModel(
     val speech: StateFlow<SpeechReader.State> = reader.state
 
     fun speakSummary() {
-        val text = note.value?.summary.orEmpty()
-        reader.speak(text, source = "摘要")
+        viewModelScope.launch {
+            applyTtsEngine()
+            reader.speak(note.value?.summary.orEmpty(), source = "摘要")
+        }
     }
 
     fun speakBody() {
-        val text = note.value?.displayBody.orEmpty()
-        reader.speak(text, source = "正文")
+        viewModelScope.launch {
+            applyTtsEngine()
+            reader.speak(note.value?.displayBody.orEmpty(), source = "正文")
+        }
+    }
+
+    /**
+     * 每次朗读前按设置决定走哪条路。
+     *
+     * local 目前还没有可用的运行时和模型包，如实退回系统语音而不是静默失败。
+     */
+    private suspend fun applyTtsEngine() {
+        val settings = container.settings.current()
+        reader.setCloudMode(
+            if (settings.ttsEngine == TTS_CLOUD && settings.ttsApiKey.isNotBlank()) {
+                SpeechReader.CloudTtsConfig(
+                    baseUrl = settings.ttsBaseUrl.ifBlank { DEFAULT_TTS_BASE_URL },
+                    apiKey = settings.ttsApiKey,
+                    model = settings.ttsModel,
+                    voice = settings.ttsVoice
+                )
+            } else {
+                null
+            }
+        )
     }
 
     fun pauseSpeech() = reader.pause()

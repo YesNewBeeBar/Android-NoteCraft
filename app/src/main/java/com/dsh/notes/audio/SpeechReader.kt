@@ -10,6 +10,10 @@ import android.speech.tts.UtteranceProgressListener
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
+import java.io.File
 import java.util.Locale
 
 /**
@@ -19,6 +23,8 @@ import java.util.Locale
  * 停的时候记住念到第几句，「继续」就从那句接着念 —— 听感上就是暂停/继续。
  */
 class SpeechReader(context: Context) {
+
+    private val appContext = context.applicationContext
 
     data class State(
         val ready: Boolean = false,
@@ -37,6 +43,29 @@ class SpeechReader(context: Context) {
     val state: StateFlow<State> = _state.asStateFlow()
 
     private var tts: TextToSpeech? = null
+
+    /** 云端合成的配置；非空就走云端，不看系统引擎 */
+    private var cloud: CloudTtsConfig? = null
+    private var player: android.media.MediaPlayer? = null
+    private val scope = kotlinx.coroutines.CoroutineScope(
+        kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main.immediate
+    )
+    private val http = okhttp3.OkHttpClient.Builder()
+        .connectTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+        .readTimeout(120, java.util.concurrent.TimeUnit.SECONDS)
+        .build()
+
+    data class CloudTtsConfig(
+        val baseUrl: String,
+        val apiKey: String,
+        val model: String,
+        val voice: String
+    )
+
+    /** 切换朗读通道：传 null 用系统引擎 */
+    fun setCloudMode(config: CloudTtsConfig?) {
+        cloud = config
+    }
     private var sentences: List<String> = emptyList()
     private var pendingText: String? = null
     private var pendingSpeed = 1.0f
@@ -106,11 +135,21 @@ class SpeechReader(context: Context) {
 
     /** 暂停：记住念到第几句，之后从这句继续 */
     fun pause() {
+        if (cloud != null) {
+            runCatching { player?.pause() }
+            _state.value = _state.value.copy(playing = false, paused = true)
+            return
+        }
         tts?.stop()
         _state.value = _state.value.copy(playing = false, paused = true)
     }
 
     fun resume() {
+        if (cloud != null) {
+            runCatching { player?.start() }
+            _state.value = _state.value.copy(playing = true, paused = false)
+            return
+        }
         if (sentences.isEmpty()) return
         _state.value = _state.value.copy(playing = true, paused = false)
         speakFrom(_state.value.index)
@@ -118,6 +157,9 @@ class SpeechReader(context: Context) {
 
     fun stop() {
         tts?.stop()
+        runCatching { player?.stop() }
+        runCatching { player?.release() }
+        player = null
         sentences = emptyList()
         _state.value = _state.value.copy(
             playing = false,
@@ -144,6 +186,11 @@ class SpeechReader(context: Context) {
     // ---------------------------------------------------------------- 内部
 
     private fun start(text: String, source: String, speed: Float) {
+        val config = cloud
+        if (config != null) {
+            startCloud(config, text, source, speed)
+            return
+        }
         sentences = splitSentences(text)
         if (sentences.isEmpty()) {
             _state.value = _state.value.copy(error = "这段内容没有可以朗读的文字")
@@ -180,8 +227,94 @@ class SpeechReader(context: Context) {
         }
     }
 
-    private val listener = object : UtteranceProgressListener() {
-        override fun onStart(utteranceId: String?) = Unit
+    /**
+     * 云端朗读：整段丢给 OpenAI 兼容的 `/audio/speech`，拿回音频用 MediaPlayer 播。
+     *
+     * 不按句分段请求 —— 那样每句一次 HTTP，延迟和费用都会翻倍；
+     * 代价是没有逐句高亮，进度条按一段显示。
+     */
+    private fun startCloud(config: CloudTtsConfig, text: String, source: String, speed: Float) {
+        if (config.apiKey.isBlank()) {
+            _state.value = _state.value.copy(error = "还没有填 TTS API Key", playing = false)
+            return
+        }
+        stop()
+        _state.value = _state.value.copy(
+            playing = true,
+            paused = false,
+            index = 0,
+            total = 1,
+            speed = speed,
+            source = source,
+            error = null
+        )
+        scope.launch {
+            val file = runCatching { synthesize(config, text, speed) }.getOrElse { error ->
+                _state.value = _state.value.copy(
+                    playing = false,
+                    error = "云端合成失败：${error.message ?: "网络错误"}"
+                )
+                return@launch
+            }
+            playFile(file)
+        }
+    }
+
+    private suspend fun synthesize(
+        config: CloudTtsConfig,
+        text: String,
+        speed: Float
+    ): File = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val plain = text.replace(Regex("[*_`>#|]"), " ").replace(Regex("\\s+"), " ").trim()
+        if (plain.isBlank()) throw IllegalStateException("没有可以朗读的文字")
+
+        val base = config.baseUrl.ifBlank { "https://api.openai.com/v1" }.trimEnd('/')
+        val payload = org.json.JSONObject().apply {
+            put("model", config.model.ifBlank { "tts-1" })
+            put("input", plain.take(4000))
+            put("voice", config.voice.ifBlank { "alloy" })
+            put("speed", speed.toDouble().coerceIn(0.5, 2.0))
+            put("response_format", "mp3")
+        }
+        val request = okhttp3.Request.Builder()
+            .url("$base/audio/speech")
+            .header("Authorization", "Bearer ${config.apiKey}")
+            .post(payload.toString().toRequestBody("application/json".toMediaType()))
+            .build()
+
+        http.newCall(request).execute().use { response ->
+            val body = response.body ?: throw IllegalStateException("响应为空")
+            if (!response.isSuccessful) {
+                val msg = runCatching { body.string().take(200) }.getOrDefault("")
+                throw IllegalStateException("HTTP ${response.code} $msg")
+            }
+            val dir = File(appContext.cacheDir, "tts").apply { if (!exists()) mkdirs() }
+            dir.listFiles()?.forEach { it.delete() }
+            val target = File(dir, "speech-${System.currentTimeMillis()}.mp3")
+            body.byteStream().use { input -> target.outputStream().use { input.copyTo(it) } }
+            target
+        }
+    }
+
+    private fun playFile(file: File) {
+        runCatching {
+            player?.release()
+            player = android.media.MediaPlayer().apply {
+                setDataSource(file.absolutePath)
+                prepare()
+                setOnCompletionListener { stop() }
+                start()
+            }
+            _state.value = _state.value.copy(playing = true, paused = false)
+        }.onFailure { error ->
+            _state.value = _state.value.copy(
+                playing = false,
+                error = "播放失败：${error.message ?: "未知错误"}"
+            )
+        }
+    }
+
+    private val listener = object : UtteranceProgressListener() {        override fun onStart(utteranceId: String?) = Unit
 
         override fun onDone(utteranceId: String?) {
             // 回调在后台线程；StateFlow 本身线程安全
