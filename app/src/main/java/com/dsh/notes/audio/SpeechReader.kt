@@ -65,6 +65,15 @@ class SpeechReader(context: Context) {
     /** 切换朗读通道：传 null 用系统引擎 */
     fun setCloudMode(config: CloudTtsConfig?) {
         cloud = config
+        if (config != null) localMode = false
+    }
+
+    private var localMode = false
+
+    /** 用本地 sherpa-onnx 模型（Kokoro）朗读 */
+    fun setLocalMode(enabled: Boolean) {
+        localMode = enabled
+        if (enabled) cloud = null
     }
     private var sentences: List<String> = emptyList()
     private var pendingText: String? = null
@@ -140,6 +149,11 @@ class SpeechReader(context: Context) {
             _state.value = _state.value.copy(playing = false, paused = true)
             return
         }
+        if (localMode) {
+            SherpaTts.pause()
+            _state.value = _state.value.copy(playing = false, paused = true)
+            return
+        }
         tts?.stop()
         _state.value = _state.value.copy(playing = false, paused = true)
     }
@@ -150,6 +164,11 @@ class SpeechReader(context: Context) {
             _state.value = _state.value.copy(playing = true, paused = false)
             return
         }
+        if (localMode) {
+            SherpaTts.resume()
+            _state.value = _state.value.copy(playing = true, paused = false)
+            return
+        }
         if (sentences.isEmpty()) return
         _state.value = _state.value.copy(playing = true, paused = false)
         speakFrom(_state.value.index)
@@ -157,6 +176,7 @@ class SpeechReader(context: Context) {
 
     fun stop() {
         tts?.stop()
+        SherpaTts.stop()
         runCatching { player?.stop() }
         runCatching { player?.release() }
         player = null
@@ -189,6 +209,10 @@ class SpeechReader(context: Context) {
         val config = cloud
         if (config != null) {
             startCloud(config, text, source, speed)
+            return
+        }
+        if (localMode) {
+            startLocal(text, source, speed)
             return
         }
         sentences = splitSentences(text)
@@ -311,6 +335,71 @@ class SpeechReader(context: Context) {
                 playing = false,
                 error = "播放失败：${error.message ?: "未知错误"}"
             )
+        }
+    }
+
+    /**
+     * 本地朗读：sherpa-onnx 合成 PCM 后用 AudioTrack 播。
+     *
+     * 分段合成再拼接 —— 一次喂整篇会让 100MB 的模型算很久且内存吃紧；
+     * 按句分块，首次出声也更快。
+     */
+    private fun startLocal(text: String, source: String, speed: Float) {
+        val dir = SherpaTts.modelDir(appContext.filesDir)
+        if (!SherpaTts.isReady(appContext.filesDir)) {
+            _state.value = _state.value.copy(
+                error = "本地模型没有安装，已改用系统语音",
+                playing = false
+            )
+            localMode = false
+            start(text, source, speed)
+            return
+        }
+        val chunks = splitSentences(text).let { list ->
+            if (list.isEmpty()) listOf(text) else list
+        }
+        if (chunks.isEmpty()) {
+            _state.value = _state.value.copy(error = "这段内容没有可以朗读的文字")
+            return
+        }
+        stop()
+        _state.value = _state.value.copy(
+            playing = true,
+            paused = false,
+            index = 0,
+            total = chunks.size,
+            speed = speed,
+            source = source,
+            error = null
+        )
+        scope.launch {
+            val started = System.currentTimeMillis()
+            val samples = runCatching {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    var rate = 24000
+                    var total = FloatArray(0)
+                    for (chunk in chunks) {
+                        val (part, sampleRate) = SherpaTts.synthesize(
+                            appContext.filesDir, chunk, speed
+                        )
+                        rate = sampleRate
+                        total = total + part
+                        _state.value = _state.value.copy(index = _state.value.index)
+                    }
+                    total to rate
+                }
+            }.getOrElse { error ->
+                _state.value = _state.value.copy(
+                    playing = false,
+                    error = "本地合成失败：${error.message ?: "未知错误"}"
+                )
+                return@launch
+            }
+            android.util.Log.i(
+                "SpeechReader",
+                "本地合成完成 ${samples.first.size} 采样，用时 ${System.currentTimeMillis() - started}ms"
+            )
+            SherpaTts.play(samples.first, samples.second)
         }
     }
 

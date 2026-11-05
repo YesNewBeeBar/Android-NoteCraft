@@ -46,6 +46,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -81,6 +82,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.dsh.notes.audio.FloatingBallService
 import com.dsh.notes.data.AppSettings
 import com.dsh.notes.data.AsrEngine
+import com.dsh.notes.audio.TtsModelManager
 import com.dsh.notes.data.ConfigArea
 import com.dsh.notes.data.DEFAULT_TTS_BASE_URL
 import com.dsh.notes.data.DEFAULT_TTS_MODEL
@@ -130,6 +132,8 @@ fun SettingsScreen(
 
     val context = LocalContext.current
     val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
+    val modelProgress by viewModel.ttsModelProgress.collectAsStateWithLifecycle()
+    var showMeteredConfirm by remember { mutableStateOf(false) }
 
     // ---- 悬浮球 ----
     // 权限在系统设置里授予，用户回来时必须重新读一次，所以挂在 resume 上
@@ -806,23 +810,107 @@ fun SettingsScreen(
 
                 if (settings.ttsEngine == TTS_LOCAL) {
                     Spacer(Modifier.height(8.dp))
-                    Text(
-                        text = if (settings.ttsLocalModel.isBlank()) {
-                            "还没有下载本地模型。"
-                        } else {
-                            "已安装模型：${settings.ttsLocalModel}"
-                        },
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    val installed = settings.ttsLocalModel.isNotBlank()
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                        )
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text(
+                                text = "Kokoro 中英混合",
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                text = if (installed) "已安装" else "约 127 MB · Apache-2.0 许可",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            if (modelProgress.phase == TtsModelManager.Phase.DOWNLOADING ||
+                                modelProgress.phase == TtsModelManager.Phase.VERIFYING ||
+                                modelProgress.phase == TtsModelManager.Phase.EXTRACTING
+                            ) {
+                                Spacer(Modifier.height(8.dp))
+                                LinearProgressIndicator(
+                                    progress = { modelProgress.percent / 100f },
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    text = modelProgress.message,
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                            }
+                            if (modelProgress.phase == TtsModelManager.Phase.ERROR) {
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    text = modelProgress.message,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            }
+                            Row {
+                                TextButton(
+                                    onClick = {
+                                        if (viewModel.ttsDownloadIsMetered()) {
+                                            showMeteredConfirm = true
+                                        } else {
+                                            viewModel.downloadTtsModel()
+                                        }
+                                    }
+                                ) {
+                                    Text(if (installed) "重新下载" else "下载")
+                                }
+                                if (installed) {
+                                    TextButton(onClick = { viewModel.deleteTtsModel() }) {
+                                        Text("删除模型")
+                                    }
+                                }
+                                TextButton(
+                                    onClick = {
+                                        uriHandler.openUri(
+                                            "https://github.com/k2-fsa/sherpa-onnx/releases/tag/tts-models"
+                                        )
+                                    }
+                                ) {
+                                    Text("其他模型")
+                                }
+                            }
+                        }
+                    }
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        text = "本地模型需要 sherpa-onnx 运行时和模型包，当前版本还没有" +
-                            "提供下载源；选它会自动退回系统语音。",
+                        text = "其他模型（VITS、Piper 等）许可各不相同，不随本应用分发，" +
+                            "请从上面的官方列表自行获取。当前网络：${viewModel.ttsNetworkLabel()}",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+            }
+
+            if (showMeteredConfirm) {
+                AlertDialog(
+                    onDismissRequest = { showMeteredConfirm = false },
+                    title = { Text("当前不是 Wi-Fi") },
+                    text = {
+                        Text(
+                            "正在使用${viewModel.ttsNetworkLabel()}，下载本地朗读模型约需 127 MB 流量。" +
+                                "确定要现在下载吗？"
+                        )
+                    },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            showMeteredConfirm = false
+                            viewModel.downloadTtsModel()
+                        }) { Text("继续下载") }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showMeteredConfirm = false }) { Text("取消") }
+                    }
+                )
             }
 
             // ================= 视觉效果 =================

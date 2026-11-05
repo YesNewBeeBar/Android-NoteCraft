@@ -7,6 +7,7 @@ import com.dsh.notes.AppContainer
 import com.dsh.notes.ai.PromptBuilder
 import com.dsh.notes.audio.FloatingBallService
 import com.dsh.notes.audio.LocalTranscriber
+import com.dsh.notes.audio.TtsModelManager
 import com.dsh.notes.data.AppSettings
 import com.dsh.notes.data.AsrEngine
 import com.dsh.notes.data.CryptoUtils
@@ -80,6 +81,40 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
 
     fun setTtsLocalModel(value: String) =
         viewModelScope.launch { container.settings.setTtsLocalModel(value) }
+
+    // ---------------------------------------------------------------- 本地朗读模型
+
+    private val ttsModelManager = TtsModelManager(container.context)
+
+    val ttsModelProgress = ttsModelManager.state
+
+    /** 当前是不是计费网络（移动数据 / 热点） */
+    fun ttsDownloadIsMetered(): Boolean = ttsModelManager.isMetered()
+
+    fun ttsNetworkLabel(): String = ttsModelManager.describeNetwork()
+
+    fun installedTtsModel(): String? = ttsModelManager.installed()
+
+    fun downloadTtsModel() {
+        viewModelScope.launch {
+            val error = ttsModelManager.install()
+            if (error == null) {
+                // 装完顺手把引擎切到本地，省得用户再点一次
+                container.settings.setTtsLocalModel(TtsModelManager.MODEL_NAME)
+                container.settings.setTtsEngine(com.dsh.notes.data.TTS_LOCAL)
+            }
+        }
+    }
+
+    fun deleteTtsModel() {
+        viewModelScope.launch {
+            ttsModelManager.remove()
+            container.settings.setTtsLocalModel("")
+            if (container.settings.current().ttsEngine == com.dsh.notes.data.TTS_LOCAL) {
+                container.settings.setTtsEngine(com.dsh.notes.data.TTS_SYSTEM)
+            }
+        }
+    }
 
     // ---------------------------------------------------------------- 大肥鱼
 

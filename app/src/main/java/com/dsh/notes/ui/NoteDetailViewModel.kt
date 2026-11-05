@@ -8,9 +8,11 @@ import com.dsh.notes.ai.PromptBuilder
 import com.dsh.notes.audio.Waveform
 import com.dsh.notes.data.Note
 import com.dsh.notes.data.ConfigValidator
+import com.dsh.notes.audio.SherpaTts
 import com.dsh.notes.audio.SpeechReader
 import com.dsh.notes.data.DEFAULT_TTS_BASE_URL
 import com.dsh.notes.data.TTS_CLOUD
+import com.dsh.notes.data.TTS_LOCAL
 import com.dsh.notes.pipeline.AudioFileState
 import com.dsh.notes.pipeline.PipelineProgress
 import com.dsh.notes.pipeline.PipelineStage
@@ -97,8 +99,11 @@ class NoteDetailViewModel(
      */
     private suspend fun applyTtsEngine() {
         val settings = container.settings.current()
+        val local = settings.ttsEngine == TTS_LOCAL &&
+            SherpaTts.isReady(container.context.filesDir)
+        reader.setLocalMode(local)
         reader.setCloudMode(
-            if (settings.ttsEngine == TTS_CLOUD && settings.ttsApiKey.isNotBlank()) {
+            if (!local && settings.ttsEngine == TTS_CLOUD && settings.ttsApiKey.isNotBlank()) {
                 SpeechReader.CloudTtsConfig(
                     baseUrl = settings.ttsBaseUrl.ifBlank { DEFAULT_TTS_BASE_URL },
                     apiKey = settings.ttsApiKey,
