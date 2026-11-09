@@ -47,6 +47,8 @@ class SpeechReader(context: Context) {
     /** 云端合成的配置；非空就走云端，不看系统引擎 */
     private var cloud: CloudTtsConfig? = null
     private var player: android.media.MediaPlayer? = null
+    private var localPlayer: android.media.MediaPlayer? = null
+    private var localJob: kotlinx.coroutines.Job? = null
     private val scope = kotlinx.coroutines.CoroutineScope(
         kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main.immediate
     )
@@ -150,7 +152,7 @@ class SpeechReader(context: Context) {
             return
         }
         if (localMode) {
-            SherpaTts.pause()
+            runCatching { localPlayer?.pause() }
             _state.value = _state.value.copy(playing = false, paused = true)
             return
         }
@@ -165,7 +167,7 @@ class SpeechReader(context: Context) {
             return
         }
         if (localMode) {
-            SherpaTts.resume()
+            runCatching { localPlayer?.start() }
             _state.value = _state.value.copy(playing = true, paused = false)
             return
         }
@@ -176,6 +178,10 @@ class SpeechReader(context: Context) {
 
     fun stop() {
         tts?.stop()
+        localJob?.cancel()
+        localJob = null
+        runCatching { localPlayer?.release() }
+        localPlayer = null
         SherpaTts.stop()
         runCatching { player?.stop() }
         runCatching { player?.release() }
@@ -339,13 +345,14 @@ class SpeechReader(context: Context) {
     }
 
     /**
-     * 本地朗读：sherpa-onnx 合成 PCM 后用 AudioTrack 播。
+     * 本地朗读：sherpa-onnx 合成，逐句播放。
      *
-     * 分段合成再拼接 —— 一次喂整篇会让 100MB 的模型算很久且内存吃紧；
-     * 按句分块，首次出声也更快。
+     * 之前把整篇合成进一个 FloatArray 再塞给 AudioTrack 的静态缓冲 ——
+     * 长文本会超出缓冲上限，write() 返回负值，play() 自然没声音，
+     * 而且整条链路没有返回值检查，所以「不报错也不出声」。
+     * 现在每句合成成一个 wav，用 MediaPlayer 播完再下一句。
      */
     private fun startLocal(text: String, source: String, speed: Float) {
-        val dir = SherpaTts.modelDir(appContext.filesDir)
         if (!SherpaTts.isReady(appContext.filesDir)) {
             _state.value = _state.value.copy(
                 error = "本地模型没有安装，已改用系统语音",
@@ -372,36 +379,116 @@ class SpeechReader(context: Context) {
             source = source,
             error = null
         )
-        scope.launch {
-            val started = System.currentTimeMillis()
-            val samples = runCatching {
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    var rate = 24000
-                    var total = FloatArray(0)
-                    for (chunk in chunks) {
-                        val (part, sampleRate) = SherpaTts.synthesize(
-                            appContext.filesDir, chunk, speed
-                        )
-                        rate = sampleRate
-                        total = total + part
-                        _state.value = _state.value.copy(index = _state.value.index)
+        localJob = scope.launch {
+            for ((index, chunk) in chunks.withIndex()) {
+                // stop() 会把 playing 置 false，同时 cancel 这个 job
+                if (!_state.value.playing) break
+                _state.value = _state.value.copy(index = index)
+                val wav = runCatching {
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        synthesizeWav(chunk, speed)
                     }
-                    total to rate
+                }.getOrElse { error ->
+                    _state.value = _state.value.copy(
+                        playing = false,
+                        error = "本地合成失败：${error.message ?: "未知错误"}"
+                    )
+                    return@launch
                 }
-            }.getOrElse { error ->
-                _state.value = _state.value.copy(
-                    playing = false,
-                    error = "本地合成失败：${error.message ?: "未知错误"}"
-                )
-                return@launch
+                val finished = playWavAndAwait(wav)
+                runCatching { wav.delete() }
+                if (!finished) break
             }
-            android.util.Log.i(
-                "SpeechReader",
-                "本地合成完成 ${samples.first.size} 采样，用时 ${System.currentTimeMillis() - started}ms"
-            )
-            SherpaTts.play(samples.first, samples.second)
+            if (_state.value.playing) stop()
         }
     }
+
+    /** 合成一句话，写成 16bit 单声道 wav —— MediaPlayer 能直接播 */
+    private fun synthesizeWav(text: String, speed: Float): File {
+        val (samples, sampleRate) = SherpaTts.synthesize(appContext.filesDir, text, speed)
+        val dir = File(appContext.cacheDir, "tts-local").apply { if (!exists()) mkdirs() }
+        dir.listFiles()?.forEach { it.delete() }
+        val target = File(dir, "line-${System.currentTimeMillis()}.wav")
+
+        val pcm = ShortArray(samples.size) { i ->
+            (samples[i].coerceIn(-1f, 1f) * Short.MAX_VALUE).toInt().toShort()
+        }
+        val dataBytes = pcm.size * 2
+        target.outputStream().buffered().use { out ->
+            fun le32(v: Int) = byteArrayOf(
+                (v and 0xFF).toByte(),
+                ((v shr 8) and 0xFF).toByte(),
+                ((v shr 16) and 0xFF).toByte(),
+                ((v shr 24) and 0xFF).toByte()
+            )
+            fun le16(v: Int) = byteArrayOf((v and 0xFF).toByte(), ((v shr 8) and 0xFF).toByte())
+
+            out.write("RIFF".toByteArray())
+            out.write(le32(36 + dataBytes))
+            out.write("WAVE".toByteArray())
+            out.write("fmt ".toByteArray())
+            out.write(le32(16))
+            out.write(le16(1))          // PCM
+            out.write(le16(1))          // 单声道
+            out.write(le32(sampleRate))
+            out.write(le32(sampleRate * 2))
+            out.write(le16(2))
+            out.write(le16(16))         // 位深
+            out.write("data".toByteArray())
+            out.write(le32(dataBytes))
+            val bytes = ByteArray(dataBytes)
+            for (i in pcm.indices) {
+                bytes[i * 2] = (pcm[i].toInt() and 0xFF).toByte()
+                bytes[i * 2 + 1] = ((pcm[i].toInt() shr 8) and 0xFF).toByte()
+            }
+            out.write(bytes)
+        }
+        return target
+    }
+
+    /** 播一段 wav，播完/出错/被取消才返回 */
+    private suspend fun playWavAndAwait(file: File): Boolean =
+        kotlinx.coroutines.suspendCancellableCoroutine { cont ->
+            var resumed = false
+            val mp = android.media.MediaPlayer()
+            localPlayer = mp
+            runCatching {
+                mp.setDataSource(file.absolutePath)
+                mp.setOnCompletionListener {
+                    if (!resumed) {
+                        resumed = true
+                        runCatching { mp.release() }
+                        cont.resumeWith(Result.success(true))
+                    }
+                }
+                mp.setOnErrorListener { _, _, _ ->
+                    if (!resumed) {
+                        resumed = true
+                        runCatching { mp.release() }
+                        cont.resumeWith(Result.success(false))
+                    }
+                    true
+                }
+                mp.prepare()
+                mp.start()
+            }.onFailure { error ->
+                if (!resumed) {
+                    resumed = true
+                    runCatching { mp.release() }
+                    _state.value = _state.value.copy(
+                        playing = false,
+                        error = "播放失败：${error.message}"
+                    )
+                    cont.resumeWith(Result.success(false))
+                }
+            }
+            cont.invokeOnCancellation {
+                if (!resumed) {
+                    resumed = true
+                    runCatching { mp.release() }
+                }
+            }
+        }
 
     private val listener = object : UtteranceProgressListener() {        override fun onStart(utteranceId: String?) = Unit
 

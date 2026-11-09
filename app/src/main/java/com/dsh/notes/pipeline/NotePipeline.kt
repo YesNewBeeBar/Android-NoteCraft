@@ -271,20 +271,59 @@ class NotePipeline(
             )
         )
 
-        val result = ai.asr.transcribeFile(
-            baseUrl = settings.asrBaseUrl,
-            apiKey = settings.asrApiKey,
-            model = settings.asrModel,
-            file = file,
-            language = settings.cloudLanguageTag(),
-            prompt = PromptBuilder.asrPrompt(settings)
-        )
+        /*
+         * 长音频先切段。
+         *
+         * 云端转写对单次请求有时长/体积上限，超过就是整条失败。
+         * 切成 45 分钟一段分别转写，最后按顺序拼成一份文字 ——
+         * 对用户仍然是一次「转写」，笔记里看不出分段。
+         */
+        val parts = mutableListOf<String>()
+        var engineLabel = ""
+        if (com.dsh.notes.audio.AudioSplitter.shouldSplit(file, note.audioDurationMs)) {
+            val segmentDir = File(context.cacheDir, "asr-segments")
+            val segments = com.dsh.notes.audio.AudioSplitter.split(file, segmentDir)
+            try {
+                segments.forEachIndexed { index, segment ->
+                    onProgress(
+                        PipelineProgress.of(
+                            note.id,
+                            PipelineStage.TRANSCRIBING,
+                            "音频较长，正在转写第 ${index + 1}/${segments.size} 段…"
+                        )
+                    )
+                    val part = ai.asr.transcribeFile(
+                        baseUrl = settings.asrBaseUrl,
+                        apiKey = settings.asrApiKey,
+                        model = settings.asrModel,
+                        file = segment.file,
+                        language = settings.cloudLanguageTag(),
+                        prompt = PromptBuilder.asrPrompt(settings)
+                    )
+                    parts += part.text
+                    engineLabel = part.engineLabel
+                }
+            } finally {
+                runCatching { segmentDir.deleteRecursively() }
+            }
+        } else {
+            val result = ai.asr.transcribeFile(
+                baseUrl = settings.asrBaseUrl,
+                apiKey = settings.asrApiKey,
+                model = settings.asrModel,
+                file = file,
+                language = settings.cloudLanguageTag(),
+                prompt = PromptBuilder.asrPrompt(settings)
+            )
+            parts += result.text
+            engineLabel = result.engineLabel
+        }
 
-        val mergedTranscript = mergeTranscript(note.liveDraft, result.text)
+        val mergedTranscript = mergeTranscript(note.liveDraft, parts.joinToString("\n"))
         repository.patch(note.id) {
             it.copy(
                 transcript = mergedTranscript,
-                asrEngine = result.engineLabel,
+                asrEngine = engineLabel,
                 status = NoteStatus.SAVED,
                 errorMessage = null
             )
