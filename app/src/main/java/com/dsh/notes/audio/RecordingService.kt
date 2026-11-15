@@ -228,9 +228,13 @@ class RecordingService : Service() {
         try {
             val dir = File(filesDir, "audio").apply { if (!exists()) mkdirs() }
 
-            // 实时上屏必须要有 PCM 流，所以它和「压缩格式」只能二选一
-            val useLiveCaption = settings.liveCaptionEnabled && settings.cloudAsrReady
-            val compressed = settings.storageFormat == StorageFormat.M4A && !useLiveCaption
+            /*
+             * 格式只由「实时上屏」决定：开着录 WAV（切片需要原始 PCM），
+             * 关着录 M4A。不再参考单独存的 storageFormat —— 那个值一旦和开关
+             * 不同步，就会出现「界面关了实时上屏、实际还在录 WAV」。
+             */
+            val useLiveCaption = settings.liveCaptionEnabled
+            val compressed = !useLiveCaption
             val extension = if (compressed) "m4a" else "wav"
             val file = File(dir, "note-$noteId.$extension")
 
@@ -302,7 +306,9 @@ class RecordingService : Service() {
         onError = { message ->
             pushState(_state.value.copy(error = "$CAPTION_ERROR_PREFIX$message"))
             broadcast()
-        }
+        },
+        provider = settings.liveAsrProvider,
+        deepSeekKey = settings.deepseekApiKey
     )
 
     private fun onCaptionSegment(text: String) {

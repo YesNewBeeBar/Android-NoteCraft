@@ -1,7 +1,9 @@
 package com.dsh.notes.audio
 
 import android.util.Log
+import com.dsh.notes.ai.DeepSeekVoice
 import com.dsh.notes.ai.OpenAiCompatibleAsr
+import com.dsh.notes.data.LIVE_ASR_DEEPSEEK
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
@@ -33,7 +35,10 @@ class LiveCaptioner(
     private val sampleRate: Int,
     private val chunkMs: Int,
     private val onSegment: (text: String) -> Unit,
-    private val onError: (message: String) -> Unit
+    private val onError: (message: String) -> Unit,
+    /** follow = 用上面那套转写配置；deepseek = 走 DeepSeek 的识别接口 */
+    private val provider: String = com.dsh.notes.data.LIVE_ASR_FOLLOW,
+    private val deepSeekKey: String = ""
 ) {
 
     /** 低于这个 RMS 视作静音，不发请求（省流量也省额度） */
@@ -56,15 +61,20 @@ class LiveCaptioner(
             for (pcm in queue) {
                 val index = segmentIndex.getAndIncrement()
                 val text = runCatching {
-                    asr.transcribePcmSegment(
-                        baseUrl = baseUrl,
-                        apiKey = apiKey,
-                        model = model,
-                        pcm = pcm,
-                        sampleRate = sampleRate,
-                        language = language,
-                        segmentIndex = index
-                    )
+                    if (provider == LIVE_ASR_DEEPSEEK) {
+                        // DeepSeek 只认 WAV/Ogg，裸 PCM 要先套一个头
+                        DeepSeekVoice.transcribe(deepSeekKey, wavBytes(pcm, sampleRate)).trim()
+                    } else {
+                        asr.transcribePcmSegment(
+                            baseUrl = baseUrl,
+                            apiKey = apiKey,
+                            model = model,
+                            pcm = pcm,
+                            sampleRate = sampleRate,
+                            language = language,
+                            segmentIndex = index
+                        )
+                    }
                 }.getOrElse { error ->
                     Log.w(TAG, "第 $index 段实时转写失败", error)
                     onError(error.message ?: "实时转写失败")
@@ -73,6 +83,31 @@ class LiveCaptioner(
                 if (text.isNotBlank()) onSegment(text)
             }
         }
+    }
+
+    /** 给裸 PCM 加一个 16bit 单声道 WAV 头 */
+    private fun wavBytes(pcm: ByteArray, sampleRate: Int): ByteArray {
+        val out = ByteArrayOutputStream(pcm.size + 44)
+        fun le32(v: Int) = byteArrayOf(
+            (v and 0xFF).toByte(), ((v shr 8) and 0xFF).toByte(),
+            ((v shr 16) and 0xFF).toByte(), ((v shr 24) and 0xFF).toByte()
+        )
+        fun le16(v: Int) = byteArrayOf((v and 0xFF).toByte(), ((v shr 8) and 0xFF).toByte())
+        out.write("RIFF".toByteArray())
+        out.write(le32(36 + pcm.size))
+        out.write("WAVE".toByteArray())
+        out.write("fmt ".toByteArray())
+        out.write(le32(16))
+        out.write(le16(1))
+        out.write(le16(1))
+        out.write(le32(sampleRate))
+        out.write(le32(sampleRate * 2))
+        out.write(le16(2))
+        out.write(le16(16))
+        out.write("data".toByteArray())
+        out.write(le32(pcm.size))
+        out.write(pcm)
+        return out.toByteArray()
     }
 
     /**

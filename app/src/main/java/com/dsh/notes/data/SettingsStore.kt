@@ -97,6 +97,11 @@ enum class AsrEngine {
 
 /** 朗读引擎 */
 const val TTS_SYSTEM = "system"
+const val TTS_PROVIDER_DEEPSEEK = "deepseek"
+const val TTS_PROVIDER_CUSTOM = "custom"
+const val LIVE_ASR_FOLLOW = "follow"
+const val LIVE_ASR_DEEPSEEK = "deepseek"
+const val DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 const val TTS_CLOUD = "cloud"
 const val TTS_LOCAL = "local"
 
@@ -193,12 +198,17 @@ data class AppSettings(
     // ---------- 朗读（TTS）----------
     /** 用哪个引擎念：system / cloud / local */
     val ttsEngine: String = TTS_SYSTEM,
+    /** 云端朗读走哪家：deepseek / custom */
+    val ttsProvider: String = TTS_PROVIDER_DEEPSEEK,
     val ttsBaseUrl: String = "",
     val ttsApiKey: String = "",
     val ttsModel: String = DEFAULT_TTS_MODEL,
     val ttsVoice: String = DEFAULT_TTS_VOICE,
     /** 已下载的本地模型目录名；空表示没下 */
     val ttsLocalModel: String = "",
+
+    /** 实时上屏用哪套识别接口：follow = 跟随音频转写配置，deepseek = DeepSeek 接口 */
+    val liveAsrProvider: String = LIVE_ASR_FOLLOW,
 
     // ---------- 大肥鱼（AI 问答）----------
     /** 助手名字，默认「大肥鱼」 */
@@ -291,6 +301,8 @@ class SettingsStore(private val context: Context) {
         val experimentalSwipeTabs = booleanPreferencesKey("experimental_swipe_tabs")
         val glassStyle = stringPreferencesKey("glass_style")
         val ttsEngine = stringPreferencesKey("tts_engine")
+        val ttsProvider = stringPreferencesKey("tts_provider")
+        val liveAsrProvider = stringPreferencesKey("live_asr_provider")
         val ttsBaseUrl = stringPreferencesKey("tts_base_url")
         val ttsApiKey = stringPreferencesKey("tts_api_key")
         val ttsModel = stringPreferencesKey("tts_model")
@@ -353,6 +365,8 @@ class SettingsStore(private val context: Context) {
             ttsApiKey = CryptoUtils.decrypt(prefs[Keys.ttsApiKey] ?: ""),
             ttsModel = prefs[Keys.ttsModel] ?: DEFAULT_TTS_MODEL,
             ttsVoice = prefs[Keys.ttsVoice] ?: DEFAULT_TTS_VOICE,
+            ttsProvider = prefs[Keys.ttsProvider] ?: TTS_PROVIDER_DEEPSEEK,
+            liveAsrProvider = prefs[Keys.liveAsrProvider] ?: LIVE_ASR_FOLLOW,
             ttsLocalModel = prefs[Keys.ttsLocalModel] ?: "",
             fishName = prefs[Keys.fishName]?.takeIf { it.isNotBlank() } ?: "大肥鱼",
             fishBaseUrl = prefs[Keys.fishBaseUrl] ?: "",
@@ -440,6 +454,8 @@ class SettingsStore(private val context: Context) {
     suspend fun setTtsModel(value: String) = put(Keys.ttsModel, value.trim())
     suspend fun setTtsVoice(value: String) = put(Keys.ttsVoice, value.trim())
     suspend fun setTtsLocalModel(value: String) = put(Keys.ttsLocalModel, value)
+    suspend fun setTtsProvider(value: String) = put(Keys.ttsProvider, value)
+    suspend fun setLiveAsrProvider(value: String) = put(Keys.liveAsrProvider, value)
 
     suspend fun setFishName(value: String) = put(Keys.fishName, value.trim().ifBlank { "大肥鱼" })
 

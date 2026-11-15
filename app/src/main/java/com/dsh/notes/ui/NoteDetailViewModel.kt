@@ -13,6 +13,7 @@ import com.dsh.notes.audio.SpeechReader
 import com.dsh.notes.data.DEFAULT_TTS_BASE_URL
 import com.dsh.notes.data.TTS_CLOUD
 import com.dsh.notes.data.TTS_LOCAL
+import com.dsh.notes.data.TTS_PROVIDER_CUSTOM
 import com.dsh.notes.pipeline.AudioFileState
 import com.dsh.notes.pipeline.PipelineProgress
 import com.dsh.notes.pipeline.PipelineStage
@@ -101,9 +102,20 @@ class NoteDetailViewModel(
         val settings = container.settings.current()
         val local = settings.ttsEngine == TTS_LOCAL &&
             SherpaTts.isReady(container.context.filesDir)
+        val cloudEngine = !local && settings.ttsEngine == TTS_CLOUD
+
+        // 先清掉两条语音通道，再按当前选择挂上一条，避免上一轮的选择残留
+        reader.setDeepSeekTts(null)
         reader.setLocalMode(local)
+
+        if (cloudEngine && settings.ttsProvider != TTS_PROVIDER_CUSTOM) {
+            reader.setCloudMode(null)
+            reader.setDeepSeekTts(settings.deepseekApiKey, settings.ttsVoice)
+            return
+        }
+
         reader.setCloudMode(
-            if (!local && settings.ttsEngine == TTS_CLOUD && settings.ttsApiKey.isNotBlank()) {
+            if (cloudEngine && settings.ttsApiKey.isNotBlank()) {
                 SpeechReader.CloudTtsConfig(
                     baseUrl = settings.ttsBaseUrl.ifBlank { DEFAULT_TTS_BASE_URL },
                     apiKey = settings.ttsApiKey,

@@ -72,6 +72,19 @@ class SpeechReader(context: Context) {
 
     private var localMode = false
 
+    /** 非空时云端朗读走 DeepSeek 的 /v1/tools/tts */
+    private var deepSeekKey: String? = null
+    private var deepSeekVoice: String = "stella"
+
+    fun setDeepSeekTts(apiKey: String?, voiceId: String = "stella") {
+        deepSeekKey = apiKey?.takeIf { it.isNotBlank() }
+        deepSeekVoice = voiceId.ifBlank { "stella" }
+        if (deepSeekKey != null) {
+            cloud = null
+            localMode = false
+        }
+    }
+
     /** 用本地 sherpa-onnx 模型（Kokoro）朗读 */
     fun setLocalMode(enabled: Boolean) {
         localMode = enabled
@@ -217,6 +230,10 @@ class SpeechReader(context: Context) {
             startCloud(config, text, source, speed)
             return
         }
+        deepSeekKey?.let { key ->
+            startDeepSeek(key, text, source)
+            return
+        }
         if (localMode) {
             startLocal(text, source, speed)
             return
@@ -254,6 +271,57 @@ class SpeechReader(context: Context) {
         )
         if (result != TextToSpeech.SUCCESS) {
             _state.value = _state.value.copy(error = "朗读启动失败", playing = false)
+        }
+    }
+
+    /**
+     * DeepSeek 云端朗读。
+     *
+     * 接口直接返回整段 wav，所以只需一次请求；不支持调速，
+     * 朗读栏的语速滑块对它无效。
+     */
+    private fun startDeepSeek(apiKey: String, text: String, source: String) {
+        val plain = text
+            .replace(Regex("```[\\s\\S]*?```"), " ")
+            .replace(Regex("[*_`#>|]"), " ")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+        if (plain.isBlank()) {
+            _state.value = _state.value.copy(error = "这段内容没有可以朗读的文字")
+            return
+        }
+        stop()
+        _state.value = _state.value.copy(
+            playing = true,
+            paused = false,
+            index = 0,
+            total = 1,
+            speed = 1f,
+            source = source,
+            error = null
+        )
+        scope.launch {
+            val file = runCatching {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    val bytes = com.dsh.notes.ai.DeepSeekVoice.synthesize(
+                        apiKey = apiKey,
+                        text = plain,
+                        voiceId = deepSeekVoice
+                    )
+                    val dir = File(appContext.cacheDir, "tts").apply { if (!exists()) mkdirs() }
+                    dir.listFiles()?.forEach { it.delete() }
+                    val target = File(dir, "deepseek-${System.currentTimeMillis()}.wav")
+                    target.outputStream().use { it.write(bytes) }
+                    target
+                }
+            }.getOrElse { error ->
+                _state.value = _state.value.copy(
+                    playing = false,
+                    error = "DeepSeek 合成失败：${error.message ?: "未知错误"}"
+                )
+                return@launch
+            }
+            playFile(file)
         }
     }
 

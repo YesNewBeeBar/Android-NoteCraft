@@ -82,6 +82,12 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
     fun setTtsLocalModel(value: String) =
         viewModelScope.launch { container.settings.setTtsLocalModel(value) }
 
+    fun setTtsProvider(value: String) =
+        viewModelScope.launch { container.settings.setTtsProvider(value) }
+
+    fun setLiveAsrProvider(value: String) =
+        viewModelScope.launch { container.settings.setLiveAsrProvider(value) }
+
     // ---------------------------------------------------------------- 本地朗读模型
 
     private val ttsModelManager = TtsModelManager(container.context)

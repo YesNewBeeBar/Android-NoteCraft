@@ -24,8 +24,8 @@ android {
         applicationId = "com.dsh.notes"
         minSdk = 26
         targetSdk = 35
-        versionCode = 52
-        versionName = "1.5.2"
+        versionCode = 53
+        versionName = "1.5.3"
         vectorDrawables.useSupportLibrary = true
         // sherpa-onnx 只编了 arm64-v8a；打包也只带这一套 so
         ndk { abiFilters += listOf("arm64-v8a") }

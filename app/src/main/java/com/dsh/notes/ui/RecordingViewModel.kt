@@ -34,10 +34,11 @@ class RecordingViewModel(private val container: AppContainer) : ViewModel() {
     /** 录音页那个实时上屏开关，和设置页是同一个设置 */
     fun setLiveCaption(enabled: Boolean) = viewModelScope.launch {
         container.settings.setLiveCaptionEnabled(enabled)
-        // 打开实时上屏就必须用 WAV（切片要原始 PCM），
-        // 顺手把格式也改掉，免得设置里写着 m4a、界面上却录的是 WAV
-        if (enabled && container.settings.current().storageFormat != StorageFormat.WAV) {
-            container.settings.setStorageFormat(StorageFormat.WAV)
+        // 格式跟着开关走，不留中间状态：
+        // 开 → WAV（切片要原始 PCM），关 → M4A（省空间）
+        val target = if (enabled) StorageFormat.WAV else StorageFormat.M4A
+        if (container.settings.current().storageFormat != target) {
+            container.settings.setStorageFormat(target)
         }
     }
 

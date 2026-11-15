@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.RadioButtonChecked
 import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Translate
+import androidx.compose.material.icons.filled.Paid
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
@@ -84,6 +85,10 @@ import com.dsh.notes.data.AppSettings
 import com.dsh.notes.data.AsrEngine
 import com.dsh.notes.audio.TtsModelManager
 import com.dsh.notes.data.ConfigArea
+import com.dsh.notes.data.LIVE_ASR_DEEPSEEK
+import com.dsh.notes.data.LIVE_ASR_FOLLOW
+import com.dsh.notes.data.TTS_PROVIDER_CUSTOM
+import com.dsh.notes.data.TTS_PROVIDER_DEEPSEEK
 import com.dsh.notes.data.DEFAULT_TTS_BASE_URL
 import com.dsh.notes.data.DEFAULT_TTS_MODEL
 import com.dsh.notes.data.DEFAULT_TTS_VOICE
@@ -134,6 +139,7 @@ fun SettingsScreen(
     val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
     val modelProgress by viewModel.ttsModelProgress.collectAsStateWithLifecycle()
     var showMeteredConfirm by remember { mutableStateOf(false) }
+    var showPricing by remember { mutableStateOf(false) }
 
     // ---- 悬浮球 ----
     // 权限在系统设置里授予，用户回来时必须重新读一次，所以挂在 resume 上
@@ -432,16 +438,35 @@ fun SettingsScreen(
 
                 SwitchRow(
                     title = "录音时实时上屏",
-                    subtitle = if (settings.cloudAsrReady) {
-                        "边录边出字。需要云转写，会把每段音频实时上传"
-                    } else {
-                        "已开启，但还没配云转写 Key，暂时不会生效"
+                    subtitle = when {
+                        !settings.liveCaptionEnabled -> "边录边出字。打开后录音会改存 WAV"
+                        settings.liveAsrProvider == LIVE_ASR_DEEPSEEK && settings.deepseekApiKey.isBlank() ->
+                            "选了 DeepSeek 识别，但还没填 DeepSeek Key"
+                        settings.liveAsrProvider != LIVE_ASR_DEEPSEEK && !settings.cloudAsrReady ->
+                            "还没配音频转写的 Key，暂时不会出字"
+                        else -> "边录边出字，每段音频会实时上传"
                     },
                     checked = settings.liveCaptionEnabled,
                     onCheckedChange = viewModel::setLiveCaption
                 )
 
-                if (settings.liveCaptionEnabled && settings.cloudAsrReady) {
+                if (settings.liveCaptionEnabled) {
+                    ChoiceRow(
+                        title = "沿用音频转写的接口",
+                        subtitle = "用上面填的 Key、模型和地址",
+                        selected = settings.liveAsrProvider == LIVE_ASR_FOLLOW,
+                        onClick = { viewModel.setLiveAsrProvider(LIVE_ASR_FOLLOW) }
+                    )
+                    ChoiceRow(
+                        title = "改用 DeepSeek 识别",
+                        subtitle = if (settings.deepseekApiKey.isBlank()) {
+                            "需要先在「笔记整理」里填好 DeepSeek Key"
+                        } else {
+                            "按音频时长计费，一段两分钟以内"
+                        },
+                        selected = settings.liveAsrProvider == LIVE_ASR_DEEPSEEK,
+                        onClick = { viewModel.setLiveAsrProvider(LIVE_ASR_DEEPSEEK) }
+                    )
                     SliceRow(
                         title = "上屏切片长度：${settings.liveCaptionChunkMs / 1000} 秒",
                         subtitle = "越短越实时，但请求次数和费用越高",
@@ -471,25 +496,14 @@ fun SettingsScreen(
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    StorageFormat.entries.forEach { format ->
-                        FilterChip(
-                            selected = settings.storageFormat == format,
-                            onClick = { viewModel.setStorageFormat(format) },
-                            label = { Text(format.label) }
-                        )
-                    }
-                }
-                InfoCard(
-                    text = buildString {
-                        appendLine("· m4a：约 0.24MB/分钟（1 小时 ≈ 14MB），但不能做实时上屏、不能静音。")
-                        appendLine("· WAV：约 1.92MB/分钟（1 小时 ≈ 115MB），支持实时上屏与静音。")
-                        if (settings.liveCaptionEnabled && settings.cloudAsrReady) {
-                            append("· 你现在开着实时上屏，所以录音会强制用 WAV 才能切片。想要省空间就先关掉实时上屏。")
-                        } else {
-                            append("· 录音时会按上面选的格式落盘。")
-                        }
-                    }
+                Text(
+                    text = if (settings.liveCaptionEnabled) {
+                        "实时上屏开着，录音存 WAV（约 1.9MB/分钟）。关掉实时上屏会自动改回 M4A。"
+                    } else {
+                        "实时上屏关着，录音存 M4A（约 0.24MB/分钟）。打开实时上屏会自动改成 WAV。"
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 SwitchRow(
                     title = "云转写失败时回落离线识别",
@@ -766,11 +780,54 @@ fun SettingsScreen(
 
                 if (settings.ttsEngine == TTS_CLOUD) {
                     Spacer(Modifier.height(8.dp))
+                    ChoiceRow(
+                        title = "DeepSeek 语音合成",
+                        subtitle = if (settings.deepseekApiKey.isBlank()) {
+                            "用「笔记整理」里那把 Key，还没填"
+                        } else {
+                            "海星 / 暗潮两个音色，按字符计费"
+                        },
+                        selected = settings.ttsProvider == TTS_PROVIDER_DEEPSEEK,
+                        onClick = { viewModel.setTtsProvider(TTS_PROVIDER_DEEPSEEK) }
+                    )
+                    if (settings.ttsProvider == TTS_PROVIDER_DEEPSEEK) {
+                        Text(
+                            text = "音色",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf(
+                                "stella" to "海星",
+                                "tide" to "暗潮"
+                            ).forEach { (id, label) ->
+                                FilterChip(
+                                    selected = settings.ttsVoice == id,
+                                    onClick = { viewModel.setTtsVoice(id) },
+                                    label = { Text(label) }
+                                )
+                            }
+                        }
+                        Text(
+                            text = "DeepSeek 不支持调节语速，朗读栏里的滑块对它不起作用。",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    ChoiceRow(
+                        title = "自己填接口",
+                        subtitle = "任何 OpenAI 兼容的语音合成服务",
+                        selected = settings.ttsProvider == TTS_PROVIDER_CUSTOM,
+                        onClick = { viewModel.setTtsProvider(TTS_PROVIDER_CUSTOM) }
+                    )
+                }
+
+                if (settings.ttsEngine == TTS_CLOUD && settings.ttsProvider == TTS_PROVIDER_CUSTOM) {
                     CommittedTextField(
                         label = "TTS BaseURL",
                         initial = settings.ttsBaseUrl.ifBlank { DEFAULT_TTS_BASE_URL },
                         placeholder = DEFAULT_TTS_BASE_URL,
-                        supporting = "OpenAI 兼容接口，路径会自动补 /audio/speech",
+                        supporting = "会在这个地址后面补 /audio/speech",
                         onCommit = viewModel::setTtsBaseUrl
                     )
                     CommittedTextField(
@@ -790,20 +847,20 @@ fun SettingsScreen(
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(Modifier.size(6.dp))
-                        Text("去申请 TTS API Key")
+                        Text("去申请 API Key")
                     }
                     CommittedTextField(
                         label = "模型",
                         initial = settings.ttsModel,
                         placeholder = DEFAULT_TTS_MODEL,
-                        supporting = "如 tts-1 / gpt-4o-mini-tts，或中转站的同名模型",
+                        supporting = "例如 tts-1，或中转站提供的同名模型",
                         onCommit = viewModel::setTtsModel
                     )
                     CommittedTextField(
                         label = "音色",
                         initial = settings.ttsVoice,
                         placeholder = DEFAULT_TTS_VOICE,
-                        supporting = "如 alloy / nova / shimmer",
+                        supporting = "例如 alloy、nova、shimmer",
                         onCommit = viewModel::setTtsVoice
                     )
                 }
@@ -913,6 +970,39 @@ fun SettingsScreen(
                 )
             }
 
+            if (showPricing) {
+                AlertDialog(
+                    onDismissRequest = { showPricing = false },
+                    title = { Text("价格预估") },
+                    text = {
+                        Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                            Text(
+                                "以下只列应用内置的预设接口。笔记整理和整段音频转写用的是你自己填的服务商，" +
+                                    "费用按那边的账单走，这里不参与结算。",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(Modifier.height(10.dp))
+                            PriceLine("DeepSeek 语音识别", "0.39 元 / 小时音频")
+                            PriceLine("DeepSeek 语音合成", "1.5 元 / 万字符")
+                            PriceLine("系统语音朗读", "免费")
+                            PriceLine("本地 Kokoro 模型", "下载一次，之后免费")
+                            Spacer(Modifier.height(10.dp))
+                            Text(
+                                "计价说明：识别按音频时长，不足一秒按一秒算；合成里一个汉字算两个字符，" +
+                                    "字母、数字、空格算一个。DeepSeek 目前是五折价，恢复原价后会翻倍。" +
+                                    "长录音超过 55 分钟会被切成多段，转写费按总时长算，不会因为切段多收。",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(onClick = { showPricing = false }) { Text("知道了") }
+                    }
+                )
+            }
+
             // ================= 视觉效果 =================
             SettingsSection(
                 icon = Icons.Default.Science,
@@ -1015,6 +1105,18 @@ fun SettingsScreen(
                     color = MaterialTheme.colorScheme.primary
                 )
                 Spacer(Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = { showPricing = true },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(
+                        Icons.Default.Paid,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(Modifier.size(6.dp))
+                    Text("价格预估")
+                }
                 Text(
                     text = buildString {
                         appendLine("· 转写与整理都走 HTTP 接口，音频和文字会发送给你配置的服务商。")
@@ -1262,8 +1364,25 @@ private fun SwitchRow(
     }
 }
 
-/** 二选一的行（单选圆点）。缩进一点，视觉上挂在上面那个开关下面 */
+/** 价格行：左边名字，右边单价 */
 @Composable
+private fun PriceLine(name: String, price: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 3.dp),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(name, style = MaterialTheme.typography.bodySmall)
+        Text(
+            text = price,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.primary
+        )
+    }
+}
+
+/** 二选一的行（单选圆点）。缩进一点，视觉上挂在上面那个开关下面 */@Composable
 private fun ChoiceRow(
     title: String,
     subtitle: String,
