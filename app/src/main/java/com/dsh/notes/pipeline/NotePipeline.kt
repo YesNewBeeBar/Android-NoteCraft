@@ -124,6 +124,26 @@ class NotePipeline(
      * 导入音频的转写：文件已复制到缓存目录，不存在「实时上屏草稿」的概念。
      * 转写成功后把文件搬进 App 私有音频目录，避免缓存被系统清掉后音频丢失。
      */
+    /**
+     * 只把导入的音频落盘，不转写也不整理。
+     *
+     * 外部导入的文件往往不需要立刻处理（可能只是存个档），
+     * 而且直接跑一遍会白花一次转写费和整理费。需要处理时由用户在详情页手动触发。
+     */
+    suspend fun storeImportedFile(noteId: Long, cacheFile: File, displayName: String) {
+        val settings = settingsStore.current()
+        val stored = moveToAudioDir(noteId, cacheFile, displayName)
+        repository.patch(noteId) {
+            it.copy(
+                audioPath = stored?.absolutePath,
+                audioDurationMs = probeDurationMs(stored ?: cacheFile, settings.sampleRate),
+                audioSizeBytes = stored?.length() ?: cacheFile.length(),
+                status = NoteStatus.SAVED,
+                errorMessage = null
+            )
+        }
+    }
+
     suspend fun transcribeImportedFile(
         noteId: Long,
         cacheFile: File,

@@ -75,6 +75,9 @@ class SpeechReader(context: Context) {
     /** 非空时云端朗读走 DeepSeek 的 /v1/tools/tts */
     private var deepSeekKey: String? = null
     private var deepSeekVoice: String = "stella"
+    private var deepSeekActive = false
+    private var deepSeekJob: kotlinx.coroutines.Job? = null
+    private val wavPlayer = WavPlayer()
 
     fun setDeepSeekTts(apiKey: String?, voiceId: String = "stella") {
         deepSeekKey = apiKey?.takeIf { it.isNotBlank() }
@@ -159,6 +162,11 @@ class SpeechReader(context: Context) {
 
     /** 暂停：记住念到第几句，之后从这句继续 */
     fun pause() {
+        if (deepSeekActive) {
+            wavPlayer.pause()
+            _state.value = _state.value.copy(playing = false, paused = true)
+            return
+        }
         if (cloud != null) {
             runCatching { player?.pause() }
             _state.value = _state.value.copy(playing = false, paused = true)
@@ -174,6 +182,11 @@ class SpeechReader(context: Context) {
     }
 
     fun resume() {
+        if (deepSeekActive) {
+            wavPlayer.resume()
+            _state.value = _state.value.copy(playing = true, paused = false)
+            return
+        }
         if (cloud != null) {
             runCatching { player?.start() }
             _state.value = _state.value.copy(playing = true, paused = false)
@@ -191,6 +204,10 @@ class SpeechReader(context: Context) {
 
     fun stop() {
         tts?.stop()
+        deepSeekJob?.cancel()
+        deepSeekJob = null
+        wavPlayer.stop()
+        deepSeekActive = false
         localJob?.cancel()
         localJob = null
         runCatching { localPlayer?.release() }
@@ -277,8 +294,9 @@ class SpeechReader(context: Context) {
     /**
      * DeepSeek 云端朗读。
      *
-     * 接口直接返回整段 wav，所以只需一次请求；不支持调速，
-     * 朗读栏的语速滑块对它无效。
+     * 接口对单次请求有上限（1 万计费字符，汉字算两个），所以按段落切成
+     * 3000 字左右一段，逐段合成、逐段播放。这样两万字的长文也能念完，
+     * 内存里同时只有一段音频。
      */
     private fun startDeepSeek(apiKey: String, text: String, source: String) {
         val plain = text
@@ -290,39 +308,81 @@ class SpeechReader(context: Context) {
             _state.value = _state.value.copy(error = "这段内容没有可以朗读的文字")
             return
         }
+        val chunks = splitForCloud(plain, 3000)
         stop()
+        deepSeekActive = true
         _state.value = _state.value.copy(
             playing = true,
             paused = false,
             index = 0,
-            total = 1,
+            total = chunks.size,
             speed = 1f,
             source = source,
             error = null
         )
-        scope.launch {
-            val file = runCatching {
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    val bytes = com.dsh.notes.ai.DeepSeekVoice.synthesize(
-                        apiKey = apiKey,
-                        text = plain,
-                        voiceId = deepSeekVoice
+        deepSeekJob = scope.launch {
+            for ((index, chunk) in chunks.withIndex()) {
+                if (!_state.value.playing) break
+                _state.value = _state.value.copy(index = index)
+                val file = runCatching {
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        val bytes = com.dsh.notes.ai.DeepSeekVoice.synthesize(
+                            apiKey = apiKey,
+                            text = chunk,
+                            voiceId = deepSeekVoice
+                        )
+                        val dir = File(appContext.cacheDir, "tts").apply { if (!exists()) mkdirs() }
+                        dir.listFiles()?.forEach { it.delete() }
+                        val target = File(dir, "deepseek-${System.currentTimeMillis()}.wav")
+                        target.outputStream().use { it.write(bytes) }
+                        target
+                    }
+                }.getOrElse { error ->
+                    val detail = (error as? com.dsh.notes.ai.AiException)?.display
+                        ?: error.message ?: "未知错误"
+                    _state.value = _state.value.copy(
+                        playing = false,
+                        error = "DeepSeek 合成失败：$detail"
                     )
-                    val dir = File(appContext.cacheDir, "tts").apply { if (!exists()) mkdirs() }
-                    dir.listFiles()?.forEach { it.delete() }
-                    val target = File(dir, "deepseek-${System.currentTimeMillis()}.wav")
-                    target.outputStream().use { it.write(bytes) }
-                    target
+                    return@launch
                 }
-            }.getOrElse { error ->
-                _state.value = _state.value.copy(
-                    playing = false,
-                    error = "DeepSeek 合成失败：${error.message ?: "未知错误"}"
-                )
-                return@launch
+                val finished = wavPlayer.play(file)
+                runCatching { file.delete() }
+                if (!finished) break
             }
-            playFile(file)
+            if (_state.value.playing) stop()
         }
+    }
+
+    /** 按句子边界切块：宁可短一点，也别把一个词劈开 */
+    private fun splitForCloud(text: String, maxChars: Int): List<String> {
+        if (text.length <= maxChars) return listOf(text)
+        val chunks = mutableListOf<String>()
+        val buffer = StringBuilder()
+        val sentences = Regex("[^。！？!?；;\n]+[。！？!?；;]?")
+            .findAll(text)
+            .map { it.value }
+            .toList()
+        for (sentence in sentences) {
+            if (buffer.length + sentence.length > maxChars && buffer.isNotEmpty()) {
+                chunks += buffer.toString()
+                buffer.clear()
+            }
+            if (sentence.length > maxChars) {
+                // 极端情况：一整段没有任何标点，硬切
+                sentence.chunked(maxChars).forEach { piece ->
+                    if (buffer.isNotEmpty()) {
+                        chunks += buffer.toString()
+                        buffer.clear()
+                    }
+                    chunks += piece
+                }
+                continue
+            }
+            buffer.append(sentence)
+        }
+        if (buffer.isNotEmpty()) chunks += buffer.toString()
+        return chunks.ifEmpty { listOf(text) }
     }
 
     /**

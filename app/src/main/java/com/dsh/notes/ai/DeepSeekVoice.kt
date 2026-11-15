@@ -71,8 +71,8 @@ object DeepSeekVoice {
         val payload = JSONObject().apply {
             put("text", text.take(9000))
             put("voice_id", voiceId.ifBlank { "stella" })
-            put("format", "wav")
-            put("filter_markdown", true)
+            // format / filter_markdown 都有默认值（wav、去掉 Markdown），
+            // 不显式传，少一个可能被拒的参数
         }
         val request = Request.Builder()
             .url("$BASE_URL/v1/tools/tts")
@@ -89,9 +89,20 @@ object DeepSeekVoice {
         response.use { resp ->
             if (!resp.isSuccessful) {
                 val raw = runCatching { resp.body?.string().orEmpty() }.getOrDefault("")
+                // 把服务端给的原因带出来，否则界面上只有一句「HTTP 400」，没法查
+                val detail = runCatching {
+                    val json = JSONObject(raw)
+                    json.optJSONObject("error")?.optString("message")
+                        ?: json.optString("message")
+                        ?: json.optString("detail")
+                }.getOrNull()?.takeIf { it.isNotBlank() }
                 throw AiException(
-                    "DeepSeek 合成失败（HTTP ${resp.code}）",
-                    hint = if (raw.contains("Content Exists Risk")) "文本没有通过内容审核" else explain(resp.code)
+                    "DeepSeek 合成失败（HTTP ${resp.code}）" +
+                        if (detail != null) "：$detail" else "",
+                    hint = when {
+                        raw.contains("Content Exists Risk") -> "文本没有通过内容审核，换一段试试"
+                        else -> explain(resp.code)
+                    }
                 )
             }
             resp.body?.bytes() ?: throw AiException("DeepSeek 没有返回音频")

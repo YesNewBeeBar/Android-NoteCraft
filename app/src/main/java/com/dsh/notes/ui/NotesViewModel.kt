@@ -385,36 +385,18 @@ class NotesViewModel(private val container: AppContainer) : ViewModel() {
                     running = true,
                     fileName = name,
                     noteId = noteId,
-                    message = "正在转写（${com.dsh.notes.util.formatSize(cacheFile.length())}）…"
+                    message = "正在保存音频（${com.dsh.notes.util.formatSize(cacheFile.length())}）…"
                 )
 
-                if (!settings.cloudAsrReady && settings.asrEngine == com.dsh.notes.data.AsrEngine.CLOUD) {
-                    container.repository.patch(noteId) {
-                        it.copy(
-                            status = NoteStatus.SAVED,
-                            errorMessage = "还没有配置云转写，无法转写这个文件"
-                        )
-                    }
-                    _importState.value = ImportState(
-                        running = false,
-                        noteId = noteId,
-                        error = "还没配置云转写 API Key，音频已保存但没转写"
-                    )
-                    return@launch
-                }
-
-                container.pipeline.transcribeImportedFile(
+                container.pipeline.storeImportedFile(
                     noteId = noteId,
                     cacheFile = cacheFile,
-                    displayName = name,
-                    onProgress = { progress ->
-                        _importState.value = _importState.value.copy(message = progress.message)
-                    }
+                    displayName = name
                 )
                 _importState.value = ImportState(
                     running = false,
                     noteId = noteId,
-                    message = "处理完成"
+                    message = "已导入。需要整理时进详情页点「转写 + 整理」"
                 )
             } catch (error: Exception) {
                 _importState.value = ImportState(
