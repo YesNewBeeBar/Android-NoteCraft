@@ -36,7 +36,9 @@ class SpeechReader(context: Context) {
         val speed: Float = 1.0f,
         /** 念的是哪一段：摘要 / 正文 */
         val source: String = "",
-        val error: String? = null
+        val error: String? = null,
+        /** 正在等云端合成（还没开始播），界面据此显示「正在转语音」 */
+        val synthesizing: Boolean = false
     )
 
     private val _state = MutableStateFlow(State())
@@ -308,12 +310,13 @@ class SpeechReader(context: Context) {
             _state.value = _state.value.copy(error = "这段内容没有可以朗读的文字")
             return
         }
-        val chunks = splitForCloud(plain, 3000)
+        val chunks = splitForCloud(plain, 800)
         stop()
         deepSeekActive = true
         _state.value = _state.value.copy(
             playing = true,
             paused = false,
+            synthesizing = true,
             index = 0,
             total = chunks.size,
             speed = 1f,
@@ -321,37 +324,67 @@ class SpeechReader(context: Context) {
             error = null
         )
         deepSeekJob = scope.launch {
-            for ((index, chunk) in chunks.withIndex()) {
-                if (!_state.value.playing) break
-                _state.value = _state.value.copy(index = index)
-                val file = runCatching {
-                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                        val bytes = com.dsh.notes.ai.DeepSeekVoice.synthesize(
-                            apiKey = apiKey,
-                            text = chunk,
-                            voiceId = deepSeekVoice
-                        )
-                        val dir = File(appContext.cacheDir, "tts").apply { if (!exists()) mkdirs() }
-                        dir.listFiles()?.forEach { it.delete() }
-                        val target = File(dir, "deepseek-${System.currentTimeMillis()}.wav")
-                        target.outputStream().use { it.write(bytes) }
-                        target
+            /*
+             * 边转边播：转好的段落进队列（最多压两段），播完一段立刻接下一段。
+             * 这样第一段转完就能出声，不用等整篇转完。
+             */
+            val queue = kotlinx.coroutines.channels.Channel<File>(capacity = 2)
+            val producer = launch(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    for (index in chunks.indices) {
+                        // 暂停时不继续转后续段落；继续之后从这里接着来
+                        while (_state.value.paused && _state.value.playing) {
+                            kotlinx.coroutines.delay(120)
+                        }
+                        if (!_state.value.playing) break
+                        _state.value = _state.value.copy(synthesizing = true, index = index)
+                        var failure: String? = null
+                        val file = runCatching {
+                            synthesizeChunk(apiKey, chunks[index])
+                        }.onFailure { error ->
+                            failure = (error as? com.dsh.notes.ai.AiException)?.display
+                                ?: error.message ?: "未知错误"
+                        }.getOrNull()
+                        if (file == null) {
+                            _state.value = _state.value.copy(
+                                playing = false,
+                                synthesizing = false,
+                                error = "DeepSeek 合成失败：${failure ?: "未知错误"}"
+                            )
+                            break
+                        }
+                        queue.send(file)
                     }
-                }.getOrElse { error ->
-                    val detail = (error as? com.dsh.notes.ai.AiException)?.display
-                        ?: error.message ?: "未知错误"
-                    _state.value = _state.value.copy(
-                        playing = false,
-                        error = "DeepSeek 合成失败：$detail"
-                    )
-                    return@launch
+                } finally {
+                    queue.close()
                 }
+            }
+            for (file in queue) {
+                if (!_state.value.playing) {
+                    runCatching { file.delete() }
+                    break
+                }
+                _state.value = _state.value.copy(synthesizing = false)
                 val finished = wavPlayer.play(file)
                 runCatching { file.delete() }
                 if (!finished) break
             }
+            producer.cancel()
             if (_state.value.playing) stop()
         }
+    }
+
+    private suspend fun synthesizeChunk(apiKey: String, chunk: String): File {
+        val bytes = com.dsh.notes.ai.DeepSeekVoice.synthesize(
+            apiKey = apiKey,
+            text = chunk,
+            voiceId = deepSeekVoice
+        )
+        val dir = File(appContext.cacheDir, "tts").apply { if (!exists()) mkdirs() }
+        dir.listFiles()?.forEach { if (it.length() == 0L) it.delete() }
+        val target = File(dir, "deepseek-${System.currentTimeMillis()}.wav")
+        target.outputStream().use { it.write(bytes) }
+        return target
     }
 
     /** 按句子边界切块：宁可短一点，也别把一个词劈开 */

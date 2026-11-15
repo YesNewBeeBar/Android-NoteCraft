@@ -385,18 +385,21 @@ class NotesViewModel(private val container: AppContainer) : ViewModel() {
                     running = true,
                     fileName = name,
                     noteId = noteId,
-                    message = "正在保存音频（${com.dsh.notes.util.formatSize(cacheFile.length())}）…"
+                    message = "正在转写（${com.dsh.notes.util.formatSize(cacheFile.length())}）…"
                 )
 
-                container.pipeline.storeImportedFile(
+                container.pipeline.transcribeImportedFile(
                     noteId = noteId,
                     cacheFile = cacheFile,
-                    displayName = name
+                    displayName = name,
+                    onProgress = { progress ->
+                        _importState.value = _importState.value.copy(message = progress.message)
+                    }
                 )
                 _importState.value = ImportState(
                     running = false,
                     noteId = noteId,
-                    message = "已导入。需要整理时进详情页点「转写 + 整理」"
+                    message = "处理完成"
                 )
             } catch (error: Exception) {
                 _importState.value = ImportState(

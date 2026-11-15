@@ -781,8 +781,11 @@ private fun SpeechBar(
                 Text(
                     text = when {
                         state.error != null -> state.error
-                        state.playing -> "正在朗读${if (state.source.isNotBlank()) " · ${state.source}" else ""}"
                         state.paused -> "已暂停"
+                        state.synthesizing ->
+                            "正在转语音${if (state.total > 1) " ${state.index + 1}/${state.total}" else ""}"
+                        state.playing ->
+                            "正在朗读${if (state.source.isNotBlank()) " · ${state.source}" else ""}"
                         else -> "朗读结束"
                     },
                     style = MaterialTheme.typography.bodyMedium,
